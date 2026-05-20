@@ -26,8 +26,8 @@ def _rect(L, x1, y1, x2, y2):
 
 def make_eps(placed, path, mat_w, mat_h, secondary=None):
     """
-    placed   : [(type, x, y, pw, ph, piw, pih)]  单位 cm
-    secondary: [(x, y, pw, ph, piw, pih)]         填充件，单位 cm
+    placed   : [(type, x, y, pw, ph, piw, pih, off_x, off_y)]  单位 cm
+    secondary: [(x, y, pw, ph, piw, pih)]                       填充件,单位 cm
     EPS 双色：外框路径用 CutOuter（红），内孔路径用 CutInner（蓝）。
     """
     def p(v): return v * CM
@@ -51,7 +51,7 @@ def make_eps(placed, path, mat_w, mat_h, secondary=None):
         "{ dup 1.000000 mul exch dup 0.000000 mul exch 0.000000 mul }",
         "] setcolorspace", "1.0 setcolor", "newpath",
     ]
-    for typ, x, y, pw, ph, piw, pih in placed:
+    for typ, x, y, pw, ph, piw, pih, off_x, off_y in placed:
         _rect(lines, p(x), p(y), p(x+pw), p(y+ph))
     for x, y, pw, ph, piw, pih in sec:
         _rect(lines, p(x), p(y), p(x+pw), p(y+ph))
@@ -59,12 +59,13 @@ def make_eps(placed, path, mat_w, mat_h, secondary=None):
 
     # ── 内孔路径 ──
     inner_lines = []
-    for typ, x, y, pw, ph, piw, pih in placed:
+    for typ, x, y, pw, ph, piw, pih, off_x, off_y in placed:
         if piw > 0:
             xp, yp, pwp, php = p(x), p(y), p(pw), p(ph)
             piwp, pihp = p(piw), p(pih)
-            _rect(inner_lines, xp+(pwp-piwp)/2, yp+(php-pihp)/2,
-                               xp+(pwp+piwp)/2, yp+(php+pihp)/2)
+            oxp, oyp = p(off_x), p(off_y)
+            _rect(inner_lines, xp+(pwp-piwp)/2+oxp, yp+(php-pihp)/2+oyp,
+                               xp+(pwp+piwp)/2+oxp, yp+(php+pihp)/2+oyp)
     for x, y, pw, ph, piw, pih in sec:
         if piw > 0:
             xp, yp, pwp, php = p(x), p(y), p(pw), p(ph)
@@ -134,15 +135,15 @@ def _pack_one_sheet(singles, usable_w, usable_h, gap, fill_sizes=None):
     """
     主件排版后，继续向同一 MaxRects bin 追加填充件（外部空闲区）。
     返回 (placed, remaining, secondary_outer)
-    placed          : [(typ, x, y, pw, ph, piw, pih)]  bin 坐标
-    secondary_outer : [(x, y, pw, ph, label)]           bin 坐标
+    placed          : [(typ, x, y, pw, ph, piw, pih, off_x, off_y)]  bin 坐标
+    secondary_outer : [(x, y, pw, ph, piw, pih)]                      bin 坐标
     """
     if not singles:
         return [], [], []
 
     packer = newPacker(mode=PackingMode.Offline, pack_algo=MaxRectsBssf, rotation=True)
     packer.add_bin(usable_w + gap, usable_h + gap)
-    for i, (typ, ow, oh, iw, ih) in enumerate(singles):
+    for i, (typ, ow, oh, iw, ih, ox, oy) in enumerate(singles):
         packer.add_rect(ow + gap, oh + gap, rid=i)
     packer.pack()
 
@@ -152,13 +153,14 @@ def _pack_one_sheet(singles, usable_w, usable_h, gap, fill_sizes=None):
     for b in packer:
         for r in b:
             i = r.rid
-            typ, ow, oh, iw, ih = singles[i]
+            typ, ow, oh, iw, ih, ox, oy = singles[i]
             placed_idx.add(i)
             if abs(r.width - (ow + gap)) < 1e-6:
-                pw, ph, piw, pih = ow, oh, iw, ih
+                pw, ph, piw, pih, pox, poy = ow, oh, iw, ih, ox, oy
             else:
-                pw, ph, piw, pih = oh, ow, ih, iw
-            placed.append((typ, float(r.x), float(r.y), pw, ph, piw, pih))
+                # 件被 rectpack 旋转 90°(约定逆时针):偏移随件一起转
+                pw, ph, piw, pih, pox, poy = oh, ow, ih, iw, -oy, ox
+            placed.append((typ, float(r.x), float(r.y), pw, ph, piw, pih, pox, poy))
 
         if fill_sizes:
             secondary_outer.extend(_apply_fill(b, fill_sizes, gap))
@@ -173,19 +175,19 @@ def _process_holes(placed_sheet, remaining, gap, fill_sizes):
       1. 优先将尚未排版的必要件（remaining）塞进去
       2. 剩余空间再填充填充件
     返回 (hole_placed, hole_secondary, still_remaining)
-    hole_placed    : [(typ,x,y,pw,ph,piw,pih)]  必要件，加入 placed（sheet 坐标）
-    hole_secondary : [(x,y,pw,ph,piw,pih)]       填充件（sheet 坐标）
+    hole_placed    : [(typ,x,y,pw,ph,piw,pih,off_x,off_y)]  必要件，加入 placed（sheet 坐标）
+    hole_secondary : [(x,y,pw,ph,piw,pih)]                   填充件（sheet 坐标）
     still_remaining: 仍未排版的必要件
     """
     hole_placed = []
     hole_secondary = []
     still_remaining = list(remaining)
 
-    for typ, x, y, pw, ph, piw, pih in placed_sheet:
+    for typ, x, y, pw, ph, piw, pih, off_x, off_y in placed_sheet:
         if typ != 'frame' or piw <= 0:
             continue
-        hx = x + (pw - piw) / 2
-        hy = y + (ph - pih) / 2
+        hx = x + (pw - piw) / 2 + off_x
+        hy = y + (ph - pih) / 2 + off_y
         avail_w = piw - 2 * gap
         avail_h = pih - 2 * gap
         if avail_w <= 0 or avail_h <= 0:
@@ -196,7 +198,7 @@ def _process_holes(placed_sheet, remaining, gap, fill_sizes):
         # 阶段 1：将剩余必要件（大→小）尽量塞入内孔
         still_remaining.sort(key=lambda t: -(t[1] * t[2]))
         placed_set = set()
-        for i, (rtyp, ow, oh, iw, ih) in enumerate(still_remaining):
+        for i, (rtyp, ow, oh, iw, ih, rox, roy) in enumerate(still_remaining):
             placed_r = hole_bin.add_rect(ow + gap, oh + gap)
             if placed_r is None and ow != oh:
                 placed_r = hole_bin.add_rect(oh + gap, ow + gap)
@@ -204,13 +206,13 @@ def _process_holes(placed_sheet, remaining, gap, fill_sizes):
                 continue
             placed_set.add(i)
             if abs(placed_r.width - (ow + gap)) < 1e-6:
-                rpw, rph, rpiw, rpih = ow, oh, iw, ih
+                rpw, rph, rpiw, rpih, rpox, rpoy = ow, oh, iw, ih, rox, roy
             else:
-                rpw, rph, rpiw, rpih = oh, ow, ih, iw
+                rpw, rph, rpiw, rpih, rpox, rpoy = oh, ow, ih, iw, -roy, rox
             hole_placed.append((rtyp,
                                 hx + gap + float(placed_r.x),
                                 hy + gap + float(placed_r.y),
-                                rpw, rph, rpiw, rpih))
+                                rpw, rph, rpiw, rpih, rpox, rpoy))
         still_remaining = [t for i, t in enumerate(still_remaining) if i not in placed_set]
 
         # 阶段 2：用填充件填满剩余内孔空间
@@ -224,7 +226,7 @@ def _process_holes(placed_sheet, remaining, gap, fill_sizes):
 
 def pack(items, materials, gap, fill_sizes=None, fill_last=True):
     """
-    items      : [(type, ow, oh, iw, ih, qty)]
+    items      : [(type, ow, oh, iw, ih, ox, oy, qty)]
     materials  : [(mat_w, mat_h, max_sheets)]
     fill_sizes : [(fw, fh, fiw, fih)] 或 None
     fill_last  : False 时最后一张不填充
@@ -232,8 +234,8 @@ def pack(items, materials, gap, fill_sizes=None, fill_last=True):
     sheets: [(mat_w, mat_h, placed, secondary)]
     """
     singles = []
-    for typ, ow, oh, iw, ih, qty in items:
-        singles += [(typ, ow, oh, iw, ih)] * qty
+    for typ, ow, oh, iw, ih, ox, oy, qty in items:
+        singles += [(typ, ow, oh, iw, ih, ox, oy)] * qty
     singles.sort(key=lambda t: (-max(t[2], t[1]), -min(t[2], t[1])))
 
     all_sheets = []
@@ -248,8 +250,8 @@ def pack(items, materials, gap, fill_sizes=None, fill_last=True):
                 singles, usable_w, usable_h, gap, fill_sizes)
             if not placed:
                 break
-            placed_off = [(t, x+gap, y+gap, pw, ph, piw, pih)
-                          for t, x, y, pw, ph, piw, pih in placed]
+            placed_off = [(t, x+gap, y+gap, pw, ph, piw, pih, ox, oy)
+                          for t, x, y, pw, ph, piw, pih, ox, oy in placed]
             sec_outer_off = [(x+gap, y+gap, pw, ph, piw, pih)
                              for x, y, pw, ph, piw, pih in sec_outer]
             # 迭代处理嵌套内孔：每轮只处理本轮新放入孔中的件的内孔
@@ -275,8 +277,8 @@ def pack(items, materials, gap, fill_sizes=None, fill_last=True):
 
 MAT_HDR  = ["材料宽(cm)", "材料高(cm)", "可用张数\n(留空=不限)", ""]
 MAT_WIDS = [10, 10, 12, 3]
-ITM_HDR  = ["外框宽(cm)", "外框高(cm)", "内孔宽(cm)\n留空=实心", "内孔高(cm)\n留空=实心", "数量", ""]
-ITM_WIDS = [9, 9, 11, 11, 6, 3]
+ITM_HDR  = ["外框宽(cm)", "外框高(cm)", "内孔宽(cm)\n留空=实心", "内孔高(cm)\n留空=实心", "X偏移(cm)\n右正,留空=0", "Y偏移(cm)\n上正,留空=0", "数量", ""]
+ITM_WIDS = [9, 9, 11, 11, 11, 11, 6, 3]
 FILL_HDR  = ["外框宽(cm)", "外框高(cm)", "内孔宽(cm)\n留空=实心", "内孔高(cm)\n留空=实心", ""]
 FILL_WIDS = [9, 9, 11, 11, 3]
 
@@ -630,13 +632,13 @@ class App(tk.Tk):
         # 利用率：总切割面积（外框面积-内孔面积）/ 材料面积
         # 嵌套件各自算自己的净面积，不会重复计算
         area_used = 0
-        for typ, x, y, pw, ph, piw, pih in placed:
+        for typ, x, y, pw, ph, piw, pih, off_x, off_y in placed:
             area_used += pw * ph - (piw * pih if piw > 0 else 0)
             self.canvas.create_rectangle(cx(x), cy(y, ph), cx(x+pw), cy(y),
                                          outline='#cc0000', width=1, fill='#ffe4e4')
             if typ == 'frame' and piw > 0:
-                ix = x + (pw - piw) / 2
-                iy = y + (ph - pih) / 2
+                ix = x + (pw - piw) / 2 + off_x
+                iy = y + (ph - pih) / 2 + off_y
                 self.canvas.create_rectangle(
                     cx(ix), cy(iy, pih), cx(ix+piw), cy(iy),
                     outline='#cc0000', width=1, fill='white')
@@ -697,9 +699,12 @@ class App(tk.Tk):
 
         items = []
         for r, vals in enumerate(self.itm_tbl.get_rows()):
+            # 兼容旧版本(只有 5 列):补齐到 7 列
+            while len(vals) < 7:
+                vals.insert(4, '')
             try:
                 ow  = float(vals[0]); oh = float(vals[1])
-                qty = int(float(vals[4])) if vals[4] else 0
+                qty = int(float(vals[6])) if vals[6] else 0
                 if ow <= 0 or oh <= 0 or qty <= 0: raise ValueError()
             except (ValueError, IndexError):
                 messagebox.showerror("输入错误", f"件第 {r+1} 行：外框宽/高 和 数量 必须大于 0")
@@ -716,9 +721,27 @@ class App(tk.Tk):
                     messagebox.showerror("输入错误", f"件第 {r+1} 行：内孔必须 > 0 且小于外框")
                     return None
                 typ = 'frame'
+                try:
+                    ox = float(vals[4]) if vals[4] else 0.0
+                    oy = float(vals[5]) if vals[5] else 0.0
+                except ValueError:
+                    messagebox.showerror("输入错误", f"件第 {r+1} 行:偏移必须是数字")
+                    return None
+                max_ox = (ow - iw) / 2
+                max_oy = (oh - ih) / 2
+                if abs(ox) > max_ox + 1e-9 or abs(oy) > max_oy + 1e-9:
+                    messagebox.showerror(
+                        "输入错误",
+                        f"件第 {r+1} 行:偏移过大,内孔会超出外框\n"
+                        f"X 偏移范围 ±{max_ox:g},Y 偏移范围 ±{max_oy:g}")
+                    return None
             else:
                 iw = ih = 0.0; typ = 'solid'
-            items.append((typ, ow, oh, iw, ih, qty))
+                if vals[4] or vals[5]:
+                    messagebox.showerror("输入错误", f"件第 {r+1} 行:实心件不能有偏移")
+                    return None
+                ox = oy = 0.0
+            items.append((typ, ow, oh, iw, ih, ox, oy, qty))
         if not items:
             messagebox.showwarning("提示", "请至少填写一种件")
             return None
@@ -815,6 +838,8 @@ class App(tk.Tk):
                     str(ci.get('outer_h', '')),
                     str(ci.get('inner_w') or ''),
                     str(ci.get('inner_h') or ''),
+                    str(ci.get('offset_x') or ''),
+                    str(ci.get('offset_y') or ''),
                     str(ci.get('qty', 1)),
                 ])
                 n_rows += 1
