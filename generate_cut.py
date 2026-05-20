@@ -518,6 +518,10 @@ class App(tk.Tk):
         self.e_gap.insert(0, "1")
         self.e_gap.grid(row=0, column=3, padx=(4, 0))
         ttk.Label(top, text="（0=共刀）", foreground='gray').grid(row=0, column=4, sticky='w', padx=(4, 0))
+        # 从 ru-dan-server 拉某天的切割数据,填进必要件表(2026-05-21)
+        ttk.Button(top, text="📥 从服务器拉数据",
+                   command=self._pull_from_server).grid(
+            row=0, column=5, sticky='w', padx=(20, 0))
 
         # 左栏：材料 + 必要件
         col0 = ttk.Frame(lf)
@@ -763,6 +767,64 @@ class App(tk.Tk):
     def _clear_fill(self):
         self.fill_tbl.clear(keep_rows=0)
 
+    # ── 从 ru-dan-server 拉数据(2026-05-21)────────────────────────────────
+    def _pull_from_server(self):
+        """业务员在 ru-dan 建单时录的切割结构化数据(orders.cut_items),按日期拉来填进必要件表。
+
+        ru-dan-server 端点:GET /orders/cutting?day=YYYY-MM-DD
+        Response: {items: [{order_id, customer_name, ship_date, cut_items: [{...}]}]}
+        """
+        import urllib.request, urllib.parse as up
+        import tkinter.simpledialog as sd
+
+        default_url = getattr(self, '_ru_dan_url', '') or 'http://192.168.0.110:8080'
+        url = sd.askstring("服务器地址",
+                           "ru-dan-server URL(下次记住):",
+                           initialvalue=default_url, parent=self)
+        if not url:
+            return
+        self._ru_dan_url = url.strip().rstrip('/')
+
+        default_day = datetime.now().strftime("%Y-%m-%d")
+        day = sd.askstring("日期", "按 ship_date 拉(YYYY-MM-DD):",
+                           initialvalue=default_day, parent=self)
+        if not day:
+            return
+
+        full_url = f"{self._ru_dan_url}/orders/cutting?day={up.quote(day)}"
+        try:
+            with urllib.request.urlopen(full_url, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            messagebox.showerror("拉取失败",
+                                 f"{type(e).__name__}: {e}\n\nURL: {full_url}")
+            return
+
+        items = data.get('items', [])
+        if not items:
+            messagebox.showinfo("无数据",
+                                f"{day} 没有切割单(orders.cut_items 字段为空)")
+            return
+
+        n_rows = 0
+        self.itm_tbl.clear(keep_rows=0)
+        for order in items:
+            for ci in order.get('cut_items', []):
+                self.itm_tbl.add_row([
+                    str(ci.get('outer_w', '')),
+                    str(ci.get('outer_h', '')),
+                    str(ci.get('inner_w') or ''),
+                    str(ci.get('inner_h') or ''),
+                    str(ci.get('qty', 1)),
+                ])
+                n_rows += 1
+
+        # 持久化 url 给下次用
+        self._save_settings()
+        messagebox.showinfo("拉取成功",
+                            f"导入 {n_rows} 行(覆盖原必要件表)\n"
+                            f"日期: {day}\n订单: {len(items)} 单")
+
     # ── 持久化 ──────────────────────────────────────────────────────────────
     def _save_settings(self):
         try:
@@ -773,6 +835,7 @@ class App(tk.Tk):
                 'items':    self.itm_tbl.get_rows(),
                 'fill':     self.fill_tbl.get_rows(),
                 'fill_last':   self.var_fill_last.get(),
+                'ru_dan_url':  getattr(self, '_ru_dan_url', ''),
             }
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -803,6 +866,7 @@ class App(tk.Tk):
                 for row in data['fill']:
                     self.fill_tbl.add_row(row)
             self.var_fill_last.set(data.get('fill_last', True))
+            self._ru_dan_url = data.get('ru_dan_url', '') or ''
         except Exception:
             pass
 
