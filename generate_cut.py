@@ -282,67 +282,106 @@ FILL_WIDS = [9, 9, 11, 11, 3]
 
 
 class RowTable(ttk.Frame):
-    """通用可增删行的表格组件。"""
+    """通用可增删行的表格组件。has_enable=True 时每行首列有启用勾选框。"""
 
-    def __init__(self, master, headers, widths, init_rows=3):
+    def __init__(self, master, headers, widths, init_rows=3, has_enable=False):
         super().__init__(master)
         self.widths = widths
-        self.rows = []   # list of (entries_list, del_btn)
+        self.has_enable = has_enable
+        self.rows = []   # list of (entries_list, del_btn) 或 (entries_list, del_btn, cb, var)
+        co = 1 if has_enable else 0  # column offset
 
         # 表头
+        if has_enable:
+            ttk.Label(self, text="启用", justify='center', anchor='center',
+                      width=4).grid(row=0, column=0, padx=4, pady=(0, 4))
         for c, (h, w) in enumerate(zip(headers[:-1], widths[:-1])):
             ttk.Label(self, text=h, justify='center', anchor='center',
-                      width=w).grid(row=0, column=c, padx=4, pady=(0, 4))
+                      width=w).grid(row=0, column=c + co, padx=4, pady=(0, 4))
 
         self.body = ttk.Frame(self)
-        self.body.grid(row=1, column=0, columnspan=len(headers))
+        self.body.grid(row=1, column=0, columnspan=len(headers) + co)
 
         ttk.Button(self, text="＋ 增加一行", command=self.add_row).grid(
-            row=2, column=0, columnspan=len(headers), sticky='w', pady=(4, 0))
+            row=2, column=0, columnspan=len(headers) + co, sticky='w', pady=(4, 0))
 
         for _ in range(init_rows):
             self.add_row()
 
     def add_row(self, prefill=None):
+        n_data = len(self.widths) - 1  # 数据列数（不含删除按钮列）
         entries = []
         for c, w in enumerate(self.widths[:-1]):
             e = ttk.Entry(self.body, width=w)
-            if prefill and c < len(prefill) and prefill[c]:
-                e.insert(0, prefill[c])
+            pval = prefill[c] if prefill and c < len(prefill) else ''
+            if pval:
+                e.insert(0, pval)
             entries.append(e)
         btn = ttk.Button(self.body, text="✕", width=2,
                          command=lambda: self.del_row(entries))
-        self.rows.append((entries, btn))
+        if self.has_enable:
+            # prefill 最后一个元素为 '0' 时默认不启用
+            init_on = True
+            if prefill and len(prefill) > n_data:
+                init_on = prefill[n_data] != '0'
+            var = tk.BooleanVar(value=init_on)
+            cb = ttk.Checkbutton(self.body, variable=var)
+
+            def _toggle(*_, entries=entries, var=var):
+                state = 'normal' if var.get() else 'disabled'
+                for e in entries:
+                    e.config(state=state)
+
+            var.trace_add('write', _toggle)
+            self.rows.append((entries, btn, cb, var))
+            # 初始状态同步
+            if not init_on:
+                for e in entries:
+                    e.config(state='disabled')
+        else:
+            self.rows.append((entries, btn))
         self._redraw()
 
     def del_row(self, entries):
         if len(self.rows) <= 1:
             return
-        self.rows = [(e, b) for e, b in self.rows if e is not entries]
+        self.rows = [r for r in self.rows if r[0] is not entries]
         self._redraw()
 
     def _redraw(self):
         for w in self.body.grid_slaves():
             w.grid_forget()
-        for r, (entries, btn) in enumerate(self.rows):
+        co = 1 if self.has_enable else 0
+        for r, row in enumerate(self.rows):
+            if self.has_enable:
+                entries, btn, cb, _ = row
+                cb.grid(row=r, column=0, padx=4, pady=2)
+            else:
+                entries, btn = row
             for c, e in enumerate(entries):
-                e.grid(row=r, column=c, padx=4, pady=2)
-            btn.grid(row=r, column=len(self.widths)-1, padx=(2, 0), pady=2)
+                e.grid(row=r, column=c + co, padx=4, pady=2)
+            btn.grid(row=r, column=len(self.widths) - 1 + co, padx=(2, 0), pady=2)
 
     def get_rows(self):
-        """返回每行的 [str, ...] 列表，跳过全空行。"""
+        """返回每行的 [str, ...] 列表，跳过全空行。
+        has_enable=True 时末尾追加 '1'/'0' 表示启用状态（用于持久化）。"""
         result = []
-        for entries, _ in self.rows:
+        for row in self.rows:
+            entries = row[0]
             vals = [e.get().strip() for e in entries]
             if any(vals):
+                if self.has_enable:
+                    vals.append('1' if row[3].get() else '0')
                 result.append(vals)
         return result
 
     def clear(self, keep_rows=2):
         """清空所有行，保留 keep_rows 个空行。"""
-        for entries, btn in self.rows:
-            for e in entries: e.destroy()
-            btn.destroy()
+        for row in self.rows:
+            for e in row[0]: e.destroy()
+            row[1].destroy()
+            if self.has_enable:
+                row[2].destroy()
         self.rows = []
         for _ in range(keep_rows):
             self.add_row()
@@ -450,7 +489,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("切割路径生成器")
-        self.resizable(False, False)
+        self.resizable(True, True)
         self._sheets_data = []
         self._cur_sheet   = 0
         self._build()
@@ -458,12 +497,19 @@ class App(tk.Tk):
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def _build(self):
-        f = ttk.Frame(self, padding=14)
-        f.grid()
+        # 外层主框架
+        outer = ttk.Frame(self, padding=14)
+        outer.grid(row=0, column=0, sticky='nsew')
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
 
-        # —— 顶部设置行 ——
-        top = ttk.Frame(f)
-        top.grid(row=0, column=0, sticky='ew', pady=(0, 10))
+        # —— 左侧参数区（双栏） ——
+        lf = ttk.Frame(outer)
+        lf.grid(row=0, column=0, sticky='n')
+
+        # 顶部设置行（跨双栏）
+        top = ttk.Frame(lf)
+        top.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         ttk.Label(top, text="文件前缀:").grid(row=0, column=0, sticky='e')
         self.prefix_bar = PrefixBar(top, defaults=("卡纸路径", "相框", "备用"))
         self.prefix_bar.grid(row=0, column=1, padx=(4, 20))
@@ -471,60 +517,62 @@ class App(tk.Tk):
         self.e_gap = ttk.Entry(top, width=6)
         self.e_gap.insert(0, "1")
         self.e_gap.grid(row=0, column=3, padx=(4, 0))
-        ttk.Label(top, text="（0=共刀）", foreground='gray').grid(row=0, column=4, sticky='w', padx=(4,0))
+        ttk.Label(top, text="（0=共刀）", foreground='gray').grid(row=0, column=4, sticky='w', padx=(4, 0))
 
-        # —— 材料表 ——
-        ttk.Label(f, text="材料（按优先级从上到下）",
-                  font=('', 9, 'bold')).grid(row=1, column=0, sticky='w')
-        self.mat_tbl = RowTable(f, MAT_HDR, MAT_WIDS, init_rows=2)
-        self.mat_tbl.grid(row=2, column=0, sticky='ew', pady=(2, 10))
+        # 左栏：材料 + 必要件
+        col0 = ttk.Frame(lf)
+        col0.grid(row=1, column=0, sticky='n', padx=(0, 16))
 
-        # —— 件表 ——
-        itm_hdr = ttk.Frame(f)
-        itm_hdr.grid(row=3, column=0, sticky='ew')
+        ttk.Label(col0, text="材料（按优先级从上到下）",
+                  font=('', 9, 'bold')).grid(row=0, column=0, sticky='w')
+        self.mat_tbl = RowTable(col0, MAT_HDR, MAT_WIDS, init_rows=2)
+        self.mat_tbl.grid(row=1, column=0, sticky='ew', pady=(2, 10))
+
+        itm_hdr = ttk.Frame(col0)
+        itm_hdr.grid(row=2, column=0, sticky='ew')
         ttk.Label(itm_hdr, text="必要件", font=('', 9, 'bold')).grid(row=0, column=0, sticky='w')
         ttk.Button(itm_hdr, text="清除全部", command=self._clear_items).grid(
             row=0, column=1, padx=(12, 0))
-        self.itm_tbl = RowTable(f, ITM_HDR, ITM_WIDS, init_rows=4)
-        self.itm_tbl.grid(row=4, column=0, sticky='ew', pady=(2, 0))
+        self.itm_tbl = RowTable(col0, ITM_HDR, ITM_WIDS, init_rows=4)
+        self.itm_tbl.grid(row=3, column=0, sticky='ew', pady=(2, 0))
 
-        # —— 填充件表 ——
-        fill_hdr = ttk.Frame(f)
-        fill_hdr.grid(row=5, column=0, sticky='ew')
+        # 右栏：尾料利用
+        col1 = ttk.Frame(lf)
+        col1.grid(row=1, column=1, sticky='n')
+
+        fill_hdr = ttk.Frame(col1)
+        fill_hdr.grid(row=0, column=0, sticky='ew')
         ttk.Label(fill_hdr, text="尾料利用",
                   font=('', 9, 'bold')).grid(row=0, column=0, sticky='w')
         ttk.Button(fill_hdr, text="清除全部",
                    command=self._clear_fill).grid(row=0, column=1, padx=(12, 0))
-        self.var_fill_enable = tk.BooleanVar(value=True)
-        ttk.Checkbutton(fill_hdr, text="启用填充",
-                        variable=self.var_fill_enable).grid(row=0, column=2, padx=(16, 0))
         self.var_fill_last = tk.BooleanVar(value=True)
         ttk.Checkbutton(fill_hdr, text="最后一张填充",
-                        variable=self.var_fill_last).grid(row=0, column=3, padx=(12, 0))
-        self.fill_tbl = RowTable(f, FILL_HDR, FILL_WIDS, init_rows=0)
-        self.fill_tbl.add_row(["42", "29.7", "", ""])
-        self.fill_tbl.add_row(["29.7", "21", "", ""])
-        self.fill_tbl.add_row(["21", "14.8", "", ""])
-        self.fill_tbl.grid(row=6, column=0, sticky='ew', pady=(2, 0))
+                        variable=self.var_fill_last).grid(row=0, column=2, padx=(16, 0))
+        self.fill_tbl = RowTable(col1, FILL_HDR, FILL_WIDS, init_rows=0, has_enable=True)
+        self.fill_tbl.add_row(["42", "29.7", "", "", "1"])
+        self.fill_tbl.add_row(["29.7", "21", "", "", "1"])
+        self.fill_tbl.add_row(["21", "14.8", "", "", "1"])
+        self.fill_tbl.grid(row=1, column=0, sticky='ew', pady=(2, 0))
 
-        # —— 按钮行 ——
-        btn_row = ttk.Frame(f)
-        btn_row.grid(row=7, column=0, pady=12, sticky='w')
+        # 按钮行 + 状态（跨双栏）
+        btn_row = ttk.Frame(lf)
+        btn_row.grid(row=2, column=0, columnspan=2, pady=12, sticky='w')
         ttk.Button(btn_row, text="  预  览  ", command=self._preview_only).grid(
             row=0, column=0, ipadx=10, ipady=6)
         ttk.Button(btn_row, text="  生 成 EPS  ", command=self._run).grid(
             row=0, column=1, padx=(10, 0), ipadx=10, ipady=6)
 
-        self.status = ttk.Label(f, text="填好参数后点生成",
+        self.status = ttk.Label(lf, text="填好参数后点生成",
                                 foreground='gray', wraplength=500, justify='left')
-        self.status.grid(row=8, column=0, sticky='w')
+        self.status.grid(row=3, column=0, columnspan=2, sticky='w')
 
         # —— 右侧预览 ——
-        sep = ttk.Separator(f, orient='vertical')
-        sep.grid(row=0, column=1, rowspan=9, sticky='ns', padx=(16, 0))
+        sep = ttk.Separator(outer, orient='vertical')
+        sep.grid(row=0, column=1, sticky='ns', padx=(16, 0))
 
-        pf = ttk.Frame(f)
-        pf.grid(row=0, column=2, rowspan=9, padx=(12, 0), sticky='n')
+        pf = ttk.Frame(outer)
+        pf.grid(row=0, column=2, padx=(12, 0), sticky='n')
 
         ttk.Label(pf, text="预览", font=('', 9, 'bold')).grid(
             row=0, column=0, columnspan=3, sticky='w', pady=(0, 4))
@@ -677,6 +725,9 @@ class App(tk.Tk):
         sizes = []
         for vals in self.fill_tbl.get_rows():
             try:
+                # get_rows() 末尾追加 '1'/'0' 启用标志
+                if vals and vals[-1] == '0':
+                    continue
                 fw, fh = float(vals[0]), float(vals[1])
                 if fw <= 0 or fh <= 0: continue
                 has_w = len(vals) > 2 and vals[2] != ''
@@ -694,12 +745,8 @@ class App(tk.Tk):
 
     def _do_pack(self, gap, materials, items):
         """执行排版+填充并更新预览，返回 (sheets, n_remaining)。"""
-        if self.var_fill_enable.get():
-            fill_sizes = self._read_fill_sizes()
-            fill_last  = self.var_fill_last.get()
-        else:
-            fill_sizes = None
-            fill_last  = True
+        fill_sizes = self._read_fill_sizes() or None
+        fill_last  = self.var_fill_last.get()
         sheets, n_remaining = pack(items, materials, gap, fill_sizes, fill_last)
         self._sheets_data = sheets
         self._draw_preview(len(sheets) - 1 if sheets else None)
@@ -725,7 +772,6 @@ class App(tk.Tk):
                 'materials': self.mat_tbl.get_rows(),
                 'items':    self.itm_tbl.get_rows(),
                 'fill':     self.fill_tbl.get_rows(),
-                'fill_enable': self.var_fill_enable.get(),
                 'fill_last':   self.var_fill_last.get(),
             }
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -756,7 +802,6 @@ class App(tk.Tk):
                 self.fill_tbl.clear(keep_rows=0)
                 for row in data['fill']:
                     self.fill_tbl.add_row(row)
-            self.var_fill_enable.set(data.get('fill_enable', True))
             self.var_fill_last.set(data.get('fill_last', True))
         except Exception:
             pass
