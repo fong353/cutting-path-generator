@@ -282,14 +282,15 @@ FILL_WIDS = [9, 9, 11, 11, 3]
 
 
 class RowTable(ttk.Frame):
-    """通用可增删行的表格组件。has_enable=True 时每行首列有启用勾选框。"""
+    """通用可增删行的表格组件。has_enable=True 时每行首列有启用勾选框；max_height 不为 None 时启用纵向滚动。"""
 
-    def __init__(self, master, headers, widths, init_rows=3, has_enable=False):
+    def __init__(self, master, headers, widths, init_rows=3, has_enable=False, max_height=None):
         super().__init__(master)
         self.widths = widths
         self.has_enable = has_enable
-        self.rows = []   # list of (entries_list, del_btn) 或 (entries_list, del_btn, cb, var)
-        co = 1 if has_enable else 0  # column offset
+        self.rows = []
+        self._max_height = max_height
+        co = 1 if has_enable else 0
 
         # 表头
         if has_enable:
@@ -299,14 +300,33 @@ class RowTable(ttk.Frame):
             ttk.Label(self, text=h, justify='center', anchor='center',
                       width=w).grid(row=0, column=c + co, padx=4, pady=(0, 4))
 
-        self.body = ttk.Frame(self)
-        self.body.grid(row=1, column=0, columnspan=len(headers) + co)
+        if max_height:
+            self._cvs = tk.Canvas(self, height=max_height, bd=0, highlightthickness=0)
+            self._vsb = ttk.Scrollbar(self, orient='vertical', command=self._cvs.yview)
+            self._cvs.configure(yscrollcommand=self._vsb.set)
+            self._cvs.grid(row=1, column=0, columnspan=len(headers) + co, sticky='ew')
+            self._vsb.grid(row=1, column=len(headers) + co, sticky='ns')
+            self.body = ttk.Frame(self._cvs)
+            self._win = self._cvs.create_window((0, 0), window=self.body, anchor='nw')
+            self.body.bind('<Configure>', lambda e: self._cvs.configure(
+                scrollregion=self._cvs.bbox('all')))
+            self._cvs.bind('<Configure>', lambda e: self._cvs.itemconfig(
+                self._win, width=max(e.width, self.body.winfo_reqwidth())))
+            self._cvs.bind('<Enter>', lambda e: self._cvs.bind_all(
+                '<MouseWheel>', self._on_wheel))
+            self._cvs.bind('<Leave>', lambda e: self._cvs.unbind_all('<MouseWheel>'))
+        else:
+            self.body = ttk.Frame(self)
+            self.body.grid(row=1, column=0, columnspan=len(headers) + co)
 
         ttk.Button(self, text="＋ 增加一行", command=self.add_row).grid(
             row=2, column=0, columnspan=len(headers) + co, sticky='w', pady=(4, 0))
 
         for _ in range(init_rows):
             self.add_row()
+
+    def _on_wheel(self, event):
+        self._cvs.yview_scroll(int(-1 * (event.delta / 120)), 'units')
 
     def add_row(self, prefill=None):
         n_data = len(self.widths) - 1  # 数据列数（不含删除按钮列）
@@ -497,15 +517,15 @@ class App(tk.Tk):
         self.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def _build(self):
-        # 外层主框架
-        outer = ttk.Frame(self, padding=14)
-        outer.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
+        pw = ttk.PanedWindow(self, orient='horizontal')
+        pw.grid(row=0, column=0, sticky='nsew', padx=14, pady=14)
+
         # —— 左侧参数区（双栏） ——
-        lf = ttk.Frame(outer)
-        lf.grid(row=0, column=0, sticky='n')
+        lf = ttk.Frame(pw, padding=(0, 0, 8, 0))
+        pw.add(lf, weight=1)
 
         # 顶部设置行（跨双栏）
         top = ttk.Frame(lf)
@@ -528,13 +548,17 @@ class App(tk.Tk):
         self.mat_tbl = RowTable(col0, MAT_HDR, MAT_WIDS, init_rows=2)
         self.mat_tbl.grid(row=1, column=0, sticky='ew', pady=(2, 10))
 
+        # 必要件（弹窗编辑）
+        self._items_rows = []
         itm_hdr = ttk.Frame(col0)
-        itm_hdr.grid(row=2, column=0, sticky='ew')
+        itm_hdr.grid(row=2, column=0, sticky='ew', pady=(0, 6))
         ttk.Label(itm_hdr, text="必要件", font=('', 9, 'bold')).grid(row=0, column=0, sticky='w')
+        self._lbl_items_count = ttk.Label(itm_hdr, text="（0 件）", foreground='gray')
+        self._lbl_items_count.grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(itm_hdr, text="编辑…", command=self._open_items_dialog).grid(
+            row=0, column=2, padx=(12, 0))
         ttk.Button(itm_hdr, text="清除全部", command=self._clear_items).grid(
-            row=0, column=1, padx=(12, 0))
-        self.itm_tbl = RowTable(col0, ITM_HDR, ITM_WIDS, init_rows=4)
-        self.itm_tbl.grid(row=3, column=0, sticky='ew', pady=(2, 0))
+            row=0, column=3, padx=(6, 0))
 
         # 右栏：尾料利用
         col1 = ttk.Frame(lf)
@@ -567,19 +591,20 @@ class App(tk.Tk):
                                 foreground='gray', wraplength=500, justify='left')
         self.status.grid(row=3, column=0, columnspan=2, sticky='w')
 
-        # —— 右侧预览 ——
-        sep = ttk.Separator(outer, orient='vertical')
-        sep.grid(row=0, column=1, sticky='ns', padx=(16, 0))
-
-        pf = ttk.Frame(outer)
-        pf.grid(row=0, column=2, padx=(12, 0), sticky='n')
+        # —— 右侧预览区 ——
+        pf = ttk.Frame(pw, padding=(8, 0, 0, 0))
+        pw.add(pf, weight=1)
+        pf.columnconfigure(0, weight=1)
+        pf.rowconfigure(1, weight=1)
 
         ttk.Label(pf, text="预览", font=('', 9, 'bold')).grid(
             row=0, column=0, columnspan=3, sticky='w', pady=(0, 4))
 
         self.canvas = tk.Canvas(pf, width=self.CVS_W, height=self.CVS_H,
                                 bg='white', relief='sunken', bd=1, cursor='crosshair')
-        self.canvas.grid(row=1, column=0, columnspan=3)
+        self.canvas.grid(row=1, column=0, columnspan=3, sticky='nsew')
+        self.canvas.bind('<Configure>', lambda e: self._draw_preview(
+            self._cur_sheet if self._sheets_data else None))
 
         nav = ttk.Frame(pf)
         nav.grid(row=2, column=0, columnspan=3, pady=(8, 0))
@@ -599,8 +624,10 @@ class App(tk.Tk):
 
     def _draw_preview(self, idx):
         self.canvas.delete('all')
+        cw = self.canvas.winfo_width()  or self.CVS_W
+        ch = self.canvas.winfo_height() or self.CVS_H
         if idx is None or not self._sheets_data:
-            self.canvas.create_text(self.CVS_W // 2, self.CVS_H // 2,
+            self.canvas.create_text(cw // 2, ch // 2,
                                     text="生成后显示预览", fill='#aaa', font=('', 11))
             self._lbl_sheet.config(text='–')
             self._lbl_util.config(text='')
@@ -612,10 +639,10 @@ class App(tk.Tk):
         mat_w, mat_h, placed, secondary = self._sheets_data[idx]
 
         pad = self.CVS_PAD
-        scale = min((self.CVS_W - 2*pad) / mat_w, (self.CVS_H - 2*pad) / mat_h)
+        scale = min((cw - 2*pad) / mat_w, (ch - 2*pad) / mat_h)
         W, H = mat_w * scale, mat_h * scale
-        ox = pad + (self.CVS_W - 2*pad - W) / 2
-        oy = pad + (self.CVS_H - 2*pad - H) / 2
+        ox = pad + (cw - 2*pad - W) / 2
+        oy = pad + (ch - 2*pad - H) / 2
 
         self.canvas.create_rectangle(ox, oy, ox+W, oy+H,
                                      outline='#444', width=1.5, fill='#f5f5f5')
@@ -692,7 +719,7 @@ class App(tk.Tk):
             return None
 
         items = []
-        for r, vals in enumerate(self.itm_tbl.get_rows()):
+        for r, vals in enumerate(self._items_rows):
             try:
                 ow  = float(vals[0]); oh = float(vals[1])
                 qty = int(float(vals[4])) if vals[4] else 0
@@ -757,8 +784,73 @@ class App(tk.Tk):
                 f"请在材料列表中增加新材料（或增大可用张数）后重新生成。")
         return sheets, n_remaining
 
+    def _open_items_dialog(self):
+        if hasattr(self, '_items_win') and self._items_win.winfo_exists():
+            self._items_win.lift()
+            return
+        win = tk.Toplevel(self)
+        win.title("编辑必要件")
+        win.resizable(True, True)
+        self._items_win = win
+        win.rowconfigure(0, weight=1)
+        win.columnconfigure(0, weight=1)
+
+        # 可滚动内容区
+        cvs = tk.Canvas(win, bd=0, highlightthickness=0)
+        vsb = ttk.Scrollbar(win, orient='vertical', command=cvs.yview)
+        cvs.configure(yscrollcommand=vsb.set)
+        cvs.grid(row=0, column=0, sticky='nsew')
+        vsb.grid(row=0, column=1, sticky='ns')
+
+        inner = ttk.Frame(cvs, padding=12)
+        win_id = cvs.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: cvs.configure(scrollregion=cvs.bbox('all')))
+        cvs.bind('<Configure>', lambda e: cvs.itemconfig(win_id, width=e.width))
+        cvs.bind('<Enter>', lambda e: cvs.bind_all(
+            '<MouseWheel>', lambda ev: cvs.yview_scroll(int(-1*(ev.delta/120)), 'units')))
+        cvs.bind('<Leave>', lambda e: cvs.unbind_all('<MouseWheel>'))
+
+        tbl = RowTable(inner, ITM_HDR, ITM_WIDS, init_rows=0)
+        if self._items_rows:
+            for row in self._items_rows:
+                tbl.add_row(row)
+        else:
+            for _ in range(4):
+                tbl.add_row()
+        tbl.grid(row=0, column=0, sticky='ew', pady=(0, 10))
+
+        # 保存/取消 固定在窗口底部（不随内容滚动）
+        btn_row = ttk.Frame(win, padding=(12, 6))
+        btn_row.grid(row=1, column=0, columnspan=2, sticky='e')
+
+        def _save():
+            self._items_rows = tbl.get_rows()
+            self._refresh_items_label()
+            win.destroy()
+
+        ttk.Button(btn_row, text="保存", command=_save).grid(
+            row=0, column=0, ipadx=10, ipady=4)
+        ttk.Button(btn_row, text="取消", command=win.destroy).grid(
+            row=0, column=1, padx=(8, 0), ipadx=10, ipady=4)
+
+        # 限制窗口初始高度不超过屏幕 80%
+        win.update_idletasks()
+        max_h = int(win.winfo_screenheight() * 0.8)
+        req_h = inner.winfo_reqheight() + btn_row.winfo_reqheight() + 30
+        win.geometry(f"{inner.winfo_reqwidth() + 30}x{min(req_h, max_h)}")
+
+    def _refresh_items_label(self):
+        rows = self._items_rows
+        try:
+            n = sum(int(float(r[4])) for r in rows if len(r) > 4 and r[4])
+        except (ValueError, IndexError):
+            n = 0
+        self._lbl_items_count.config(
+            text=f"（{len(rows)} 种，共 {n} 件）" if rows else "（0 件）")
+
     def _clear_items(self):
-        self.itm_tbl.clear()
+        self._items_rows = []
+        self._refresh_items_label()
 
     def _clear_fill(self):
         self.fill_tbl.clear(keep_rows=0)
@@ -770,7 +862,7 @@ class App(tk.Tk):
                 'prefixes': self.prefix_bar.get_all(),
                 'gap':      self.e_gap.get(),
                 'materials': self.mat_tbl.get_rows(),
-                'items':    self.itm_tbl.get_rows(),
+                'items':    self._items_rows,
                 'fill':     self.fill_tbl.get_rows(),
                 'fill_last':   self.var_fill_last.get(),
             }
@@ -795,9 +887,8 @@ class App(tk.Tk):
                 for row in data['materials']:
                     self.mat_tbl.add_row(row)
             if 'items' in data:
-                self.itm_tbl.clear(keep_rows=0)
-                for row in data['items']:
-                    self.itm_tbl.add_row(row)
+                self._items_rows = data['items']
+                self._refresh_items_label()
             if 'fill' in data:
                 self.fill_tbl.clear(keep_rows=0)
                 for row in data['fill']:
