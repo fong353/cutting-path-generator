@@ -39,8 +39,8 @@
             <input name="customer_code" value="{{ demand.customer_code }}" {% if readonly %}disabled{% endif %} required>
           </div>
           <div>
-            <label>提交人</label>
-            <input name="submitter" value="{{ demand.submitter or '' }}" {% if readonly %}disabled{% endif %}>
+            <label>提交人 *</label>
+            <input name="submitter" value="{{ demand.submitter or '' }}" {% if readonly %}disabled{% endif %} required autocomplete="name">
           </div>
         </div>
         <div class="row">
@@ -131,6 +131,7 @@
       btn.closest('tr').remove();
     }
   </script>
+  <script src="/static/submitter_cache.js"></script>
   <script src="/static/hole_offset.js"></script>
   {% endif %}
 </body>

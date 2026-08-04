@@ -35,6 +35,8 @@ def _parse_multi_customer_form(form):
     submitter = (form.get('submitter') or '').strip()
     if not work_date:
         raise ValueError('请填写业务日期')
+    if not submitter:
+        raise ValueError('请填写提交人')
 
     codes = form.getlist('c_code')
     notes = form.getlist('c_note')
@@ -225,6 +227,8 @@ async def sales_update(request: Request, demand_id: int):
             raise ValueError('已拼板完成的需求不能修改')
         if not work_date:
             raise ValueError('请填写业务日期')
+        if not submitter:
+            raise ValueError('请填写提交人')
         if not customer_code:
             raise ValueError('请填写客户代码')
         try:

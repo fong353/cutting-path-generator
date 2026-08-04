@@ -25,8 +25,8 @@
             <input type="date" name="work_date" value="{{ today }}" required>
           </div>
           <div>
-            <label>提交人</label>
-            <input name="submitter" value="{{ submitter or '' }}">
+            <label>提交人 *</label>
+            <input name="submitter" value="{{ submitter or '' }}" required autocomplete="name" placeholder="首次必填，之后本机自动记住">
           </div>
         </div>
 
@@ -124,6 +124,7 @@
 
     addCustomer();
   </script>
+  <script src="/static/submitter_cache.js"></script>
   <script src="/static/hole_offset.js"></script>
 </body>
 </html>
