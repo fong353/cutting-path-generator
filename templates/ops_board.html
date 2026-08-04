@@ -14,17 +14,17 @@
       <a href="/">首页</a>
     </div>
 
-    {% if not demands %}
-    <div class="card"><div class="err">未选择有效需求</div></div>
+    {% if not jobs %}
+    <div class="card"><div class="err">未选择有效任务</div></div>
     {% else %}
 
     <div class="card">
-      <h2>已选需求（多客户混合）</h2>
-      {% for d in demands %}
-        <span class="tag">{{ d.customer_code }}</span>
-        <span class="muted">#{{ d.id }} {{ d.status }}</span>
-        {% for m in d.materials %}<span class="tag">{{ m.name }}</span>{% endfor %}
-        {% for it in d.item_rows %}
+      <h2>已选任务（客户 × 材料）</h2>
+      {% for j in jobs %}
+        <span class="tag">{{ j.customer_code }}</span>
+        <span class="tag">{{ j.material_name }}</span>
+        <span class="muted">#{{ j.demand_id }} {{ j.job_status }}</span>
+        {% for it in j.item_rows %}
           <span class="muted">{{ it.ow }}×{{ it.oh }}×{{ it.qty }}</span>
         {% endfor %}
         <br>
@@ -34,7 +34,7 @@
     <div class="board-layout">
       <div>
         <div class="card">
-          <h2>材料（种类可继承需求；宽高手填）</h2>
+          <h2>材料（种类可继承任务；宽高手填）</h2>
           <table>
             <thead>
               <tr><th>种类</th><th>宽</th><th>高</th><th>张数</th><th></th></tr>
@@ -86,7 +86,7 @@
   </div>
 
   <script>
-    const DEMAND_IDS = {{ demand_ids | tojson }};
+    const JOB_KEYS = {{ job_keys | tojson }};
     const CATALOG = {{ catalog | tojson }};
     const DEFAULTS = {{ defaults | tojson }};
     const SUGGESTED_MATS = {{ suggested_mats | tojson }};
@@ -115,7 +115,6 @@
       document.getElementById('matBody').appendChild(tr);
     }
     function onMatPick(sel) {
-      // 种类仅作标注；宽高仍由操作员手填
       const opt = sel.options[sel.selectedIndex];
       sel.closest('tr').dataset.name = opt.text || '';
     }
@@ -160,7 +159,7 @@
         fih: tr.querySelector('.f-fih').value,
       }));
       return {
-        demand_ids: DEMAND_IDS,
+        jobs: JOB_KEYS,
         materials,
         fill,
         gap: document.getElementById('gap').value,
@@ -192,7 +191,7 @@
     }
 
     async function doGenerate() {
-      if (!confirm('确认生成 EPS 并将所选需求标为完成？')) return;
+      if (!confirm('确认生成 EPS 并将所选「客户×材料」任务标为完成？')) return;
       const msg = document.getElementById('msg');
       msg.textContent = '生成中…';
       const data = await postJson('/ops/board/generate', collectBody());
@@ -252,11 +251,10 @@
           const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
           const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
           const ix = x + hl * scale;
-          const iy = y + (p.ph - hb - p.pih) * scale; // canvas y 向下
+          const iy = y + (p.ph - hb - p.pih) * scale;
           ctx.strokeStyle = '#06c';
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
         }
-        // 客户代码画在矩形内
         const code = p.customer_code || '';
         if (code) {
           const fs = Math.max(9, Math.min(22, Math.min(pw, ph) * 0.28));

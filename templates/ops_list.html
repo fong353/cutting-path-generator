@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <div class="wrap">
+  <div class="wrap wrap-wide">
     <div class="topnav">
       <span class="brand">操作员 · 待拼池</span>
       <a href="/">首页</a>
@@ -23,55 +23,88 @@
           <button class="btn" type="submit">查询</button>
         </div>
       </form>
+      <p class="muted">按「客户 × 材料」拆行；建议同种卡纸一起混拼。完成后仍保留在右侧，不会消失。</p>
+    </div>
 
-      {% if not demands %}
-      <p class="muted">该日没有待拼需求</p>
-      {% else %}
-      <form id="poolForm">
-        {% if need_pin %}<input type="hidden" name="pin" value="{{ pin }}">{% endif %}
+    <div class="pool-split">
+      <div class="card pool-pane">
+        <h2>未完成 <span class="muted">({{ pending_jobs|length }})</span></h2>
+        {% if not pending_jobs %}
+        <p class="muted">暂无未完成任务</p>
+        {% else %}
+        <form id="poolForm">
+          {% if need_pin %}<input type="hidden" name="pin" value="{{ pin }}">{% endif %}
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="checkAll" onclick="toggleAll(this)"></th>
+                <th>需求</th><th>客户</th><th>材料</th><th>件</th><th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for j in pending_jobs %}
+              <tr>
+                <td><input type="checkbox" name="jobs" value="{{ j.key }}"></td>
+                <td>#{{ j.demand_id }}</td>
+                <td><span class="tag">{{ j.customer_code }}</span></td>
+                <td><span class="tag">{{ j.material_name }}</span></td>
+                <td class="cell-items">
+                  {% for it in j.item_rows %}
+                    {{ it.ow }}×{{ it.oh }}{% if it.iw %}(孔{{ it.iw }}×{{ it.ih }}){% endif %}×{{ it.qty }}{% if not loop.last %}；{% endif %}
+                  {% endfor %}
+                </td>
+                <td>{{ j.note or '—' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="actions">
+            <button type="button" class="btn green" onclick="goBoard()">开始混拼</button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="card pool-pane pool-done">
+        <h2>完成 <span class="muted">({{ done_jobs|length }})</span></h2>
+        {% if not done_jobs %}
+        <p class="muted">本日尚无已完成任务</p>
+        {% else %}
         <table>
           <thead>
             <tr>
-              <th><input type="checkbox" id="checkAll" onclick="toggleAll(this)"></th>
-              <th>ID</th><th>客户代码</th><th>材料</th><th>件</th><th>备注</th><th>提交</th>
+              <th>需求</th><th>客户</th><th>材料</th><th>件</th><th>备注</th>
             </tr>
           </thead>
           <tbody>
-          {% for d in demands %}
-            <tr>
-              <td><input type="checkbox" name="ids" value="{{ d.id }}"></td>
-              <td>#{{ d.id }}</td>
-              <td><span class="tag">{{ d.customer_code }}</span></td>
-              <td>
-                {% for m in d.materials %}<span class="tag">{{ m.name }}</span>{% else %}—{% endfor %}
-              </td>
-              <td>
-                {% for it in d.item_rows %}
+          {% for j in done_jobs %}
+            <tr class="row-done">
+              <td>#{{ j.demand_id }}</td>
+              <td><span class="tag">{{ j.customer_code }}</span></td>
+              <td><span class="tag">{{ j.material_name }}</span></td>
+              <td class="cell-items">
+                {% for it in j.item_rows %}
                   {{ it.ow }}×{{ it.oh }}{% if it.iw %}(孔{{ it.iw }}×{{ it.ih }}){% endif %}×{{ it.qty }}{% if not loop.last %}；{% endif %}
                 {% endfor %}
               </td>
-              <td>{{ d.note or '—' }}</td>
-              <td>{{ d.submitter or '—' }}</td>
+              <td>{{ j.note or '—' }}</td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
-        <div class="actions">
-          <button type="button" class="btn green" onclick="goBoard()">开始混拼</button>
-        </div>
-      </form>
-      {% endif %}
+        {% endif %}
+      </div>
     </div>
   </div>
   <script>
     function toggleAll(el) {
-      document.querySelectorAll('input[name=ids]').forEach(c => c.checked = el.checked);
+      document.querySelectorAll('input[name=jobs]').forEach(c => c.checked = el.checked);
     }
     function goBoard() {
-      const ids = [...document.querySelectorAll('input[name=ids]:checked')].map(c => c.value);
-      if (!ids.length) { alert('请至少勾选一条需求'); return; }
+      const keys = [...document.querySelectorAll('input[name=jobs]:checked')].map(c => c.value);
+      if (!keys.length) { alert('请至少勾选一条任务'); return; }
       const pin = document.querySelector('input[name=pin]');
-      let url = '/ops/board?ids=' + ids.join(',');
+      let url = '/ops/board?jobs=' + encodeURIComponent(keys.join(','));
       if (pin && pin.value) url += '&pin=' + encodeURIComponent(pin.value);
       location.href = url;
     }

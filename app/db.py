@@ -59,6 +59,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS demand_material (
             demand_id INTEGER NOT NULL REFERENCES demand(id) ON DELETE CASCADE,
             material_id INTEGER NOT NULL REFERENCES material(id),
+            status TEXT NOT NULL DEFAULT 'pending',
             PRIMARY KEY (demand_id, material_id)
         );
         CREATE TABLE IF NOT EXISTS job_run (
@@ -85,6 +86,11 @@ def _ensure_item_offset_columns(conn):
         conn.execute('ALTER TABLE demand_item ADD COLUMN hole_left REAL')
     if 'hole_bottom' not in cols:
         conn.execute('ALTER TABLE demand_item ADD COLUMN hole_bottom REAL')
+    dm_cols = {r[1] for r in conn.execute('PRAGMA table_info(demand_material)')}
+    if 'status' not in dm_cols:
+        conn.execute(
+            "ALTER TABLE demand_material ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+        )
 
 
 def list_materials(enabled_only=True):
@@ -102,7 +108,7 @@ def _attach_demand_extras(conn, d):
     ).fetchall()
     d['item_rows'] = [dict(i) for i in items]
     mats = conn.execute(
-        '''SELECT m.id, m.name FROM demand_material dm
+        '''SELECT m.id, m.name, dm.status AS job_status FROM demand_material dm
            JOIN material m ON m.id = dm.material_id
            WHERE dm.demand_id = ?
            ORDER BY m.sort_order, m.id''',
@@ -143,7 +149,8 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
             )
         for mid in material_ids:
             conn.execute(
-                'INSERT INTO demand_material (demand_id, material_id) VALUES (?,?)',
+                '''INSERT INTO demand_material (demand_id, material_id, status)
+                   VALUES (?,?, 'pending')''',
                 (did, mid),
             )
         return did
@@ -186,7 +193,8 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
             )
         for mid in material_ids:
             conn.execute(
-                'INSERT INTO demand_material (demand_id, material_id) VALUES (?,?)',
+                '''INSERT INTO demand_material (demand_id, material_id, status)
+                   VALUES (?,?, 'pending')''',
                 (demand_id, mid),
             )
 
@@ -219,6 +227,115 @@ def get_demands_by_ids(ids):
         return [_attach_demand_extras(conn, dict(r)) for r in rows]
 
 
+def list_jobs(work_date=None, status=None):
+    """
+    按「客户 × 材料」拆行。
+    status: 'pending' / 'done' / None(全部)。
+    """
+    with get_db() as conn:
+        clauses, args = [], []
+        if status:
+            clauses.append('dm.status = ?')
+            args.append(status)
+        if work_date:
+            clauses.append('d.work_date = ?')
+            args.append(work_date)
+        where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
+        rows = conn.execute(
+            f'''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.note,
+                       d.submitter, d.created_at, d.status AS demand_status,
+                       dm.status AS job_status,
+                       m.id AS material_id, m.name AS material_name
+                FROM demand_material dm
+                JOIN demand d ON d.id = dm.demand_id
+                JOIN material m ON m.id = dm.material_id
+                {where}
+                ORDER BY d.work_date DESC, m.sort_order, d.customer_code, d.id''',
+            args,
+        ).fetchall()
+        result = []
+        for r in rows:
+            job = dict(r)
+            items = conn.execute(
+                'SELECT * FROM demand_item WHERE demand_id = ? ORDER BY id',
+                (job['demand_id'],),
+            ).fetchall()
+            job['item_rows'] = [dict(i) for i in items]
+            job['key'] = f"{job['demand_id']}-{job['material_id']}"
+            result.append(job)
+        return result
+
+
+def list_pending_jobs(work_date=None):
+    return list_jobs(work_date=work_date, status='pending')
+
+
+def get_jobs_by_keys(keys):
+    """keys: ['demandId-materialId', ...]"""
+    parsed = []
+    for k in keys or []:
+        parts = str(k).strip().split('-')
+        if len(parts) != 2:
+            continue
+        try:
+            parsed.append((int(parts[0]), int(parts[1])))
+        except ValueError:
+            continue
+    if not parsed:
+        return []
+    result = []
+    with get_db() as conn:
+        for did, mid in parsed:
+            row = conn.execute(
+                '''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.note,
+                          d.submitter, d.created_at, d.status AS demand_status,
+                          dm.status AS job_status,
+                          m.id AS material_id, m.name AS material_name
+                   FROM demand_material dm
+                   JOIN demand d ON d.id = dm.demand_id
+                   JOIN material m ON m.id = dm.material_id
+                   WHERE dm.demand_id = ? AND dm.material_id = ?''',
+                (did, mid),
+            ).fetchone()
+            if not row:
+                continue
+            job = dict(row)
+            items = conn.execute(
+                'SELECT * FROM demand_item WHERE demand_id = ? ORDER BY id',
+                (did,),
+            ).fetchall()
+            job['item_rows'] = [dict(i) for i in items]
+            job['key'] = f'{did}-{mid}'
+            result.append(job)
+    return result
+
+
+def mark_jobs_done(keys):
+    """将指定 demand×material 标为 done；若该需求所有材料均完成则 demand 标 done。"""
+    jobs = get_jobs_by_keys(keys)
+    if not jobs:
+        return
+    with get_db() as conn:
+        demand_ids = set()
+        for j in jobs:
+            conn.execute(
+                '''UPDATE demand_material SET status = 'done'
+                   WHERE demand_id = ? AND material_id = ?''',
+                (j['demand_id'], j['material_id']),
+            )
+            demand_ids.add(j['demand_id'])
+        for did in demand_ids:
+            left = conn.execute(
+                '''SELECT COUNT(*) AS c FROM demand_material
+                   WHERE demand_id = ? AND status = 'pending' ''',
+                (did,),
+            ).fetchone()['c']
+            if left == 0:
+                conn.execute(
+                    "UPDATE demand SET status = 'done' WHERE id = ?", (did,)
+                )
+
+
 def mark_demands_done(ids):
     if not ids:
         return
@@ -226,6 +343,10 @@ def mark_demands_done(ids):
     with get_db() as conn:
         conn.execute(
             f"UPDATE demand SET status = 'done' WHERE id IN ({placeholders})",
+            list(ids),
+        )
+        conn.execute(
+            f"UPDATE demand_material SET status = 'done' WHERE demand_id IN ({placeholders})",
             list(ids),
         )
 

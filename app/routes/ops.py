@@ -55,7 +55,7 @@ class FillRow(BaseModel):
 
 
 class BoardBody(BaseModel):
-    demand_ids: List[int] = Field(min_length=1)
+    jobs: List[str] = Field(min_length=1)  # "demandId-materialId"
     materials: List[MaterialRow]
     fill: List[FillRow] = []
     gap: Any = 1
@@ -64,11 +64,12 @@ class BoardBody(BaseModel):
     save_defaults: bool = True
 
 
-def _items_from_demands(demands):
+def _items_from_jobs(jobs):
+    """每个「客户×材料」任务贡献一套件（同需求多材料会重复件，符合分材料下单）。"""
     items = []
-    for d in demands:
-        code = d['customer_code']
-        for it in d.get('item_rows', []):
+    for j in jobs:
+        code = j['customer_code']
+        for it in j.get('item_rows', []):
             typ = 'frame' if float(it['iw'] or 0) > 0 else 'solid'
             hl = it.get('hole_left')
             hb = it.get('hole_bottom')
@@ -84,19 +85,18 @@ def _items_from_demands(demands):
 
 
 def _run_pack(body: BoardBody):
-    demands = db.get_demands_by_ids(body.demand_ids)
-    if len(demands) != len(set(body.demand_ids)):
-        raise ValueError('部分需求不存在')
-    missing = [d['id'] for d in demands if d['status'] != 'pending']
-    # 允许对已 done 再预览，但生成时再检查
-    items = _items_from_demands(demands)
+    jobs = db.get_jobs_by_keys(body.jobs)
+    found = {j['key'] for j in jobs}
+    if any(k not in found for k in body.jobs):
+        raise ValueError('部分待拼任务不存在')
+    items = _items_from_jobs(jobs)
     if not items:
-        raise ValueError('所选需求没有件')
+        raise ValueError('所选任务没有件')
     gap = parse_gap(body.gap)
     materials = parse_materials([m.model_dump() for m in body.materials])
     fill_sizes = parse_fill_sizes([f.model_dump() for f in body.fill]) or None
     sheets, n_remaining = pack(items, materials, gap, fill_sizes, body.fill_last)
-    return demands, sheets, n_remaining
+    return jobs, sheets, n_remaining
 
 
 @router.get('', response_class=HTMLResponse)
@@ -107,43 +107,41 @@ def ops_list(request: Request, date: str = '', pin: str = ''):
             'error': bool(pin),
         })
     work_date = date or db.today_str()
-    demands = db.list_demands(work_date=work_date, status='pending')
+    pending_jobs = db.list_jobs(work_date=work_date, status='pending')
+    done_jobs = db.list_jobs(work_date=work_date, status='done')
     return templates.TemplateResponse('ops_list.html', {
         'request': request,
         'work_date': work_date,
-        'demands': demands,
+        'pending_jobs': pending_jobs,
+        'done_jobs': done_jobs,
         'pin': pin if OPS_PIN else '',
         'need_pin': bool(OPS_PIN),
     })
 
 
 @router.get('/board', response_class=HTMLResponse)
-def ops_board(request: Request, ids: str = '', pin: str = ''):
+def ops_board(request: Request, jobs: str = '', pin: str = ''):
     if OPS_PIN and pin != OPS_PIN:
         return templates.TemplateResponse('ops_pin.html', {
             'request': request,
             'error': bool(pin),
         })
-    try:
-        demand_ids = [int(x) for x in ids.split(',') if x.strip()]
-    except ValueError:
-        demand_ids = []
-    demands = db.get_demands_by_ids(demand_ids)
+    keys = [x.strip() for x in jobs.split(',') if x.strip()]
+    selected = db.get_jobs_by_keys(keys)
     materials = db.list_materials()
     defaults = load_ops_defaults()
-    # 从业务员指定材料汇总预填种类行（宽高仍空，由操作员手填）
+    # 按所选任务的材料预填种类行（宽高仍空，由操作员手填）
     seen = {}
-    for d in demands:
-        for m in d.get('materials') or []:
-            seen[m['id']] = m['name']
+    for j in selected:
+        seen[j['material_id']] = j['material_name']
     suggested_mats = [
         {'material_id': mid, 'name': name, 'width': '', 'height': '', 'sheets': ''}
         for mid, name in seen.items()
     ]
     return templates.TemplateResponse('ops_board.html', {
         'request': request,
-        'demands': demands,
-        'demand_ids': [d['id'] for d in demands],
+        'jobs': selected,
+        'job_keys': [j['key'] for j in selected],
         'catalog': materials,
         'defaults': defaults,
         'suggested_mats': suggested_mats,
@@ -154,7 +152,7 @@ def ops_board(request: Request, ids: str = '', pin: str = ''):
 @router.post('/board/preview')
 def ops_preview(body: BoardBody, _: None = Depends(_check_pin)):
     try:
-        demands, sheets, n_remaining = _run_pack(body)
+        jobs, sheets, n_remaining = _run_pack(body)
         if body.save_defaults:
             save_ops_defaults({
                 'gap': str(body.gap),
@@ -167,7 +165,7 @@ def ops_preview(body: BoardBody, _: None = Depends(_check_pin)):
             'ok': True,
             'sheets': sheets_to_json(sheets),
             'n_remaining': n_remaining,
-            'customers': sorted({d['customer_code'] for d in demands}),
+            'customers': sorted({j['customer_code'] for j in jobs}),
         }
     except ValueError as e:
         return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)
@@ -176,10 +174,10 @@ def ops_preview(body: BoardBody, _: None = Depends(_check_pin)):
 @router.post('/board/generate')
 def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
     try:
-        demands, sheets, n_remaining = _run_pack(body)
-        pending = [d for d in demands if d['status'] == 'pending']
+        jobs, sheets, n_remaining = _run_pack(body)
+        pending = [j for j in jobs if j.get('job_status') == 'pending']
         if not pending:
-            raise ValueError('所选需求均已完成，无法再次生成')
+            raise ValueError('所选任务均已完成，无法再次生成')
         if not sheets:
             raise ValueError('没有生成任何板材，请检查材料尺寸')
 
@@ -194,16 +192,15 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
             mat_name = sheet[4] if len(sheet) > 4 else f'{mat_w:g}x{mat_h:g}'
             uid = uuid.uuid4().hex[:8]
             safe_mat = _safe_filename(mat_name)
-            # 自定义前缀 + 板材编号 + 材料名
             fname = f'{prefix}-板{i}-{safe_mat}-{uid}.eps'
             fpath = out_dir / fname
             make_eps(placed, str(fpath), mat_w, mat_h, secondary)
             paths.append(str(fpath))
 
-        ids = [d['id'] for d in pending]
-        db.mark_demands_done(ids)
+        keys = [j['key'] for j in pending]
+        db.mark_jobs_done(keys)
         db.save_job_run(
-            ids,
+            keys,
             [m.model_dump() for m in body.materials],
             paths,
         )
@@ -220,7 +217,7 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
             'sheets': sheets_to_json(sheets),
             'n_remaining': n_remaining,
             'eps_paths': paths,
-            'customers': sorted({d['customer_code'] for d in demands}),
+            'customers': sorted({j['customer_code'] for j in jobs}),
         }
     except ValueError as e:
         return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)
