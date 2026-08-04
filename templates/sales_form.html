@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>业务员 · 提交需求</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topnav">
+      <span class="brand">业务员 · 需求</span>
+      <a href="/">首页</a>
+      <a href="/sales/demands">检查 / 修改</a>
+    </div>
+
+    <div class="card">
+      <h1>提交切割需求</h1>
+      <p class="muted">一次可添加多个客户；每个客户可多选材料、多行件。板材宽高由操作员拼板时手填。</p>
+      {% if error %}<div class="err">{{ error }}</div>{% endif %}
+      <form method="post" action="/sales/submit" id="salesForm">
+        <div class="row cols-2">
+          <div>
+            <label>业务日期</label>
+            <input type="date" name="work_date" value="{{ today }}" required>
+          </div>
+          <div>
+            <label>提交人</label>
+            <input name="submitter" value="{{ submitter or '' }}">
+          </div>
+        </div>
+
+        <div id="customerBlocks"></div>
+        <div class="actions">
+          <button type="button" class="btn secondary" onclick="addCustomer()">＋ 添加客户</button>
+          <button type="submit" class="btn">全部提交</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    const CATALOG = {{ catalog | tojson }};
+    let blockSeq = 0;
+
+    function matChecksHtml(bi) {
+      return CATALOG.map(m => `
+        <label class="check">
+          <input type="checkbox" name="c_mat" value="${bi}:${m.id}">
+          ${m.name}
+        </label>`).join('');
+    }
+
+    function itemRowHtml(bi) {
+      return `<tr>
+        <td><input type="hidden" name="i_block" value="${bi}">
+            <input name="ow" inputmode="decimal"></td>
+        <td><input name="oh" inputmode="decimal"></td>
+        <td><input name="iw" inputmode="decimal" placeholder="实心留空"></td>
+        <td><input name="ih" inputmode="decimal" placeholder="实心留空"></td>
+        <td><input name="qty" inputmode="numeric" value="1"></td>
+        <td><button type="button" class="btn secondary small" onclick="delItem(this)">删</button></td>
+      </tr>`;
+    }
+
+    function addCustomer() {
+      const bi = blockSeq++;
+      const box = document.createElement('div');
+      box.className = 'card customer-block';
+      box.dataset.bi = bi;
+      box.innerHTML = `
+        <div class="cust-head">
+          <h2>客户 #${bi + 1}</h2>
+          <button type="button" class="btn secondary small" onclick="removeCustomer(this)">移除客户</button>
+        </div>
+        <div class="row cols-2">
+          <div>
+            <label>客户代码 *</label>
+            <input name="c_code" required placeholder="如 A012">
+          </div>
+          <div>
+            <label>备注</label>
+            <input name="c_note" placeholder="可选">
+          </div>
+        </div>
+        <h2>材料种类 *</h2>
+        <div class="mat-checks">${matChecksHtml(bi)}</div>
+        <h2>件明细</h2>
+        <table>
+          <thead>
+            <tr><th>外框宽</th><th>外框高</th><th>内孔宽</th><th>内孔高</th><th>数量</th><th></th></tr>
+          </thead>
+          <tbody class="item-body">${itemRowHtml(bi)}</tbody>
+        </table>
+        <button type="button" class="btn secondary small" onclick="addItem(this, ${bi})">＋ 增加一行</button>
+      `;
+      document.getElementById('customerBlocks').appendChild(box);
+    }
+
+    function removeCustomer(btn) {
+      const root = document.getElementById('customerBlocks');
+      if (root.querySelectorAll('.customer-block').length <= 1) {
+        alert('至少保留一个客户');
+        return;
+      }
+      btn.closest('.customer-block').remove();
+    }
+
+    function addItem(btn, bi) {
+      btn.closest('.customer-block').querySelector('.item-body').insertAdjacentHTML('beforeend', itemRowHtml(bi));
+    }
+
+    function delItem(btn) {
+      const body = btn.closest('tbody');
+      if (body.rows.length <= 1) return;
+      btn.closest('tr').remove();
+    }
+
+    addCustomer();
+  </script>
+</body>
+</html>

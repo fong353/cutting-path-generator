@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>操作员口令</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" style="max-width:420px;margin:80px auto">
+      <h1>操作员入口</h1>
+      {% if error %}<div class="err">口令错误</div>{% endif %}
+      <form method="get" action="/ops">
+        <label>口令</label>
+        <input type="password" name="pin" autofocus>
+        <div class="actions">
+          <button class="btn" type="submit">进入</button>
+          <a class="btn secondary" href="/">返回</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

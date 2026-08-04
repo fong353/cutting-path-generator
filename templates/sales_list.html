@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>检查 / 修改需求</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topnav">
+      <span class="brand">业务员 · 检查 / 修改</span>
+      <a href="/sales">提交需求</a>
+      <a href="/">首页</a>
+    </div>
+    <div class="card">
+      <h1>按日查看</h1>
+      <p class="muted">点「查看/修改」进入二级页。仅 <strong>pending</strong> 可改、可删；已拼板完成不可改删。</p>
+      {% if request.query_params.get('deleted') %}
+      <div class="ok">已删除需求 #{{ request.query_params.get('deleted') }}</div>
+      {% endif %}
+      <form method="get" class="row cols-2" style="align-items:end">
+        <div>
+          <label>业务日期</label>
+          <input type="date" name="date" value="{{ work_date }}">
+        </div>
+        <div><button class="btn" type="submit">查询</button></div>
+      </form>
+      {% if not demands %}
+      <p class="muted">该日暂无需求</p>
+      {% else %}
+      <table>
+        <thead>
+          <tr><th>ID</th><th>客户</th><th>材料</th><th>状态</th><th>件数行</th><th>提交人</th><th>时间</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for d in demands %}
+          <tr>
+            <td>#{{ d.id }}</td>
+            <td><span class="tag">{{ d.customer_code }}</span></td>
+            <td>
+              {% for m in d.materials %}<span class="tag">{{ m.name }}</span>{% else %}—{% endfor %}
+            </td>
+            <td>{{ d.status }}</td>
+            <td>{{ d.item_rows|length }}</td>
+            <td>{{ d.submitter or '—' }}</td>
+            <td>{{ d.created_at }}</td>
+            <td style="white-space:nowrap">
+              <a class="btn secondary small" href="/sales/demands/{{ d.id }}">查看/修改</a>
+              {% if d.status == 'pending' %}
+              <form method="post" action="/sales/demands/{{ d.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('确认删除需求 #{{ d.id }}？');">
+                <input type="hidden" name="date" value="{{ work_date }}">
+                <button type="submit" class="btn danger small">删除</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

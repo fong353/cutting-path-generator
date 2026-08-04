@@ -1,0 +1,291 @@
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
+from urllib.parse import urlencode
+
+from app import db
+from app.validate import parse_item_row
+
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / 'templates'))
+router = APIRouter(prefix='/sales')
+
+
+def _form_ctx(**extra):
+    ctx = {
+        'today': db.today_str(),
+        'error': None,
+        'catalog': db.list_materials(),
+        'submitter': '',
+    }
+    ctx.update(extra)
+    return ctx
+
+
+def _parse_multi_customer_form(form):
+    """
+    解析一次提交的多客户表单。
+    c_code / c_note：按客户块顺序
+    c_mat：值为 "块下标:材料id"
+    i_block / ow / oh / iw / ih / qty：件行，i_block 指向客户块
+    返回 (work_date, submitter, blocks)
+    blocks: [{customer_code, note, material_ids, items:[(ow,oh,iw,ih,qty),...]}, ...]
+    """
+    work_date = (form.get('work_date') or '').strip()
+    submitter = (form.get('submitter') or '').strip()
+    if not work_date:
+        raise ValueError('请填写业务日期')
+
+    codes = form.getlist('c_code')
+    notes = form.getlist('c_note')
+    if not codes:
+        raise ValueError('请至少添加一个客户')
+
+    mats_by_block = {i: [] for i in range(len(codes))}
+    for raw in form.getlist('c_mat'):
+        raw = str(raw).strip()
+        if not raw or ':' not in raw:
+            continue
+        bi_s, mid_s = raw.split(':', 1)
+        try:
+            bi, mid = int(bi_s), int(mid_s)
+        except ValueError:
+            raise ValueError('材料选择无效') from None
+        if bi in mats_by_block:
+            mats_by_block[bi].append(mid)
+
+    items_by_block = {i: [] for i in range(len(codes))}
+    i_blocks = form.getlist('i_block')
+    ow_list = form.getlist('ow')
+    oh_list = form.getlist('oh')
+    iw_list = form.getlist('iw')
+    ih_list = form.getlist('ih')
+    qty_list = form.getlist('qty')
+
+    for i in range(len(ow_list)):
+        row = {
+            'ow': ow_list[i],
+            'oh': oh_list[i] if i < len(oh_list) else '',
+            'iw': iw_list[i] if i < len(iw_list) else '',
+            'ih': ih_list[i] if i < len(ih_list) else '',
+            'qty': qty_list[i] if i < len(qty_list) else '',
+        }
+        if not any(str(row[k]).strip() for k in row):
+            continue
+        try:
+            bi = int(i_blocks[i]) if i < len(i_blocks) else 0
+        except ValueError:
+            raise ValueError(f'件第 {i + 1} 行：客户块无效') from None
+        if bi not in items_by_block:
+            raise ValueError(f'件第 {i + 1} 行：客户块无效')
+        code = (codes[bi] if bi < len(codes) else '').strip() or '临时'
+        _typ, ow, oh, iw, ih, qty, _c = parse_item_row(row, code, i)
+        items_by_block[bi].append((ow, oh, iw, ih, qty))
+
+    blocks = []
+    for bi, code in enumerate(codes):
+        code = (code or '').strip()
+        note = (notes[bi] if bi < len(notes) else '') or ''
+        note = note.strip()
+        # 跳过完全空的客户块
+        if not code and not items_by_block[bi] and not mats_by_block[bi]:
+            continue
+        if not code:
+            raise ValueError(f'客户块 {bi + 1}：请填写客户代码')
+        mids = list(dict.fromkeys(mats_by_block[bi]))
+        if not mids:
+            raise ValueError(f'客户「{code}」：请至少指定一种材料')
+        items = items_by_block[bi]
+        if not items:
+            raise ValueError(f'客户「{code}」：请至少填写一件')
+        blocks.append({
+            'customer_code': code,
+            'note': note,
+            'material_ids': mids,
+            'items': items,
+        })
+    if not blocks:
+        raise ValueError('请至少填写一个客户的需求')
+    return work_date, submitter, blocks
+
+
+@router.get('', response_class=HTMLResponse)
+def sales_form(request: Request):
+    return templates.TemplateResponse('sales_form.html', {
+        'request': request,
+        **_form_ctx(),
+    })
+
+
+@router.post('/submit', response_class=HTMLResponse)
+async def sales_submit(request: Request):
+    form = await request.form()
+    error = None
+    created_ids = []
+    work_date = (form.get('work_date') or '').strip()
+    submitter = (form.get('submitter') or '').strip()
+    try:
+        work_date, submitter, blocks = _parse_multi_customer_form(form)
+        for b in blocks:
+            did = db.create_demand(
+                work_date, b['customer_code'], b['items'],
+                b['note'], submitter, b['material_ids'],
+            )
+            created_ids.append(did)
+    except ValueError as e:
+        error = str(e)
+
+    if error:
+        return templates.TemplateResponse('sales_form.html', {
+            'request': request,
+            **_form_ctx(today=work_date or db.today_str(), error=error, submitter=submitter),
+        }, status_code=400)
+
+    qs = urlencode({'ids': ','.join(str(i) for i in created_ids)})
+    return RedirectResponse(f'/sales/done?{qs}', status_code=303)
+
+
+@router.get('/done', response_class=HTMLResponse)
+def sales_done(request: Request, ids: str = '', id: int = 0):
+    id_list = []
+    if ids:
+        for p in ids.split(','):
+            p = p.strip()
+            if p.isdigit():
+                id_list.append(int(p))
+    elif id:
+        id_list = [id]
+    demands = db.get_demands_by_ids(id_list)
+    return templates.TemplateResponse('sales_done.html', {
+        'request': request,
+        'demands': demands,
+    })
+
+
+@router.get('/demands', response_class=HTMLResponse)
+def sales_list(request: Request, date: str = ''):
+    work_date = date or db.today_str()
+    demands = db.list_demands(work_date=work_date)
+    return templates.TemplateResponse('sales_list.html', {
+        'request': request,
+        'work_date': work_date,
+        'demands': demands,
+    })
+
+
+@router.get('/demands/{demand_id}', response_class=HTMLResponse)
+def sales_detail(request: Request, demand_id: int):
+    rows = db.get_demands_by_ids([demand_id])
+    if not rows:
+        return templates.TemplateResponse('sales_edit.html', {
+            'request': request,
+            'demand': None,
+            'catalog': db.list_materials(),
+            'error': '需求不存在',
+            'readonly': True,
+        }, status_code=404)
+    demand = rows[0]
+    return templates.TemplateResponse('sales_edit.html', {
+        'request': request,
+        'demand': demand,
+        'catalog': db.list_materials(),
+        'error': None,
+        'readonly': demand['status'] != 'pending',
+        'selected_ids': [m['id'] for m in demand.get('materials') or []],
+    })
+
+
+@router.post('/demands/{demand_id}', response_class=HTMLResponse)
+async def sales_update(request: Request, demand_id: int):
+    form = await request.form()
+    rows = db.get_demands_by_ids([demand_id])
+    if not rows:
+        return templates.TemplateResponse('sales_edit.html', {
+            'request': request,
+            'demand': None,
+            'catalog': db.list_materials(),
+            'error': '需求不存在',
+            'readonly': True,
+        }, status_code=404)
+    demand = rows[0]
+    catalog = db.list_materials()
+
+    work_date = (form.get('work_date') or '').strip()
+    customer_code = (form.get('customer_code') or '').strip()
+    note = (form.get('note') or '').strip()
+    submitter = (form.get('submitter') or '').strip()
+    mat_raw = form.getlist('material_id')
+    error = None
+    try:
+        if demand['status'] != 'pending':
+            raise ValueError('已拼板完成的需求不能修改')
+        if not work_date:
+            raise ValueError('请填写业务日期')
+        if not customer_code:
+            raise ValueError('请填写客户代码')
+        try:
+            selected_ids = [int(x) for x in mat_raw if str(x).strip()]
+        except ValueError:
+            raise ValueError('材料选择无效') from None
+        if not selected_ids:
+            raise ValueError('请至少指定一种材料')
+        items = []
+        ow_list = form.getlist('ow')
+        oh_list = form.getlist('oh')
+        iw_list = form.getlist('iw')
+        ih_list = form.getlist('ih')
+        qty_list = form.getlist('qty')
+        for i in range(len(ow_list)):
+            row = {
+                'ow': ow_list[i],
+                'oh': oh_list[i] if i < len(oh_list) else '',
+                'iw': iw_list[i] if i < len(iw_list) else '',
+                'ih': ih_list[i] if i < len(ih_list) else '',
+                'qty': qty_list[i] if i < len(qty_list) else '',
+            }
+            if not any(str(row[k]).strip() for k in row):
+                continue
+            _t, ow, oh, iw, ih, qty, _c = parse_item_row(row, customer_code, i)
+            items.append((ow, oh, iw, ih, qty))
+        if not items:
+            raise ValueError('请至少填写一件')
+        db.update_demand(
+            demand_id, work_date, customer_code, items, note, submitter, selected_ids
+        )
+        return RedirectResponse(f'/sales/demands/{demand_id}?saved=1', status_code=303)
+    except ValueError as e:
+        error = str(e)
+
+    # 回显失败时的表单：重新读库 + 覆盖错误信息
+    demand = db.get_demands_by_ids([demand_id])[0]
+    return templates.TemplateResponse('sales_edit.html', {
+        'request': request,
+        'demand': demand,
+        'catalog': catalog,
+        'error': error,
+        'readonly': False,
+        'selected_ids': [int(x) for x in mat_raw if str(x).strip().isdigit()],
+    }, status_code=400)
+
+
+@router.post('/demands/{demand_id}/delete', response_class=HTMLResponse)
+async def sales_delete(request: Request, demand_id: int):
+    form = await request.form()
+    work_date = (form.get('date') or '').strip() or db.today_str()
+    try:
+        db.delete_demand(demand_id)
+    except ValueError as e:
+        rows = db.get_demands_by_ids([demand_id])
+        demand = rows[0] if rows else None
+        return templates.TemplateResponse('sales_edit.html', {
+            'request': request,
+            'demand': demand,
+            'catalog': db.list_materials(),
+            'error': str(e),
+            'readonly': not demand or demand['status'] != 'pending',
+            'selected_ids': [m['id'] for m in (demand or {}).get('materials') or []],
+        }, status_code=400)
+    return RedirectResponse(
+        f'/sales/demands?date={work_date}&deleted={demand_id}',
+        status_code=303,
+    )
