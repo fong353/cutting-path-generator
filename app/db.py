@@ -76,6 +76,15 @@ def init_db():
                     'INSERT INTO material (name, enabled, sort_order) VALUES (?,?,?)',
                     (name, 1, i + 1),
                 )
+        _ensure_item_offset_columns(conn)
+
+
+def _ensure_item_offset_columns(conn):
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(demand_item)')}
+    if 'hole_left' not in cols:
+        conn.execute('ALTER TABLE demand_item ADD COLUMN hole_left REAL')
+    if 'hole_bottom' not in cols:
+        conn.execute('ALTER TABLE demand_item ADD COLUMN hole_bottom REAL')
 
 
 def list_materials(enabled_only=True):
@@ -104,7 +113,7 @@ def _attach_demand_extras(conn, d):
 
 
 def create_demand(work_date, customer_code, items, note='', submitter='', material_ids=None):
-    """items: list of (ow, oh, iw, ih, qty). material_ids: 业务员指定的卡纸种类。"""
+    """items: (ow, oh, iw, ih, qty) 或 (ow, oh, iw, ih, qty, hole_left, hole_bottom)。"""
     now = datetime.now().isoformat(timespec='seconds')
     material_ids = list(dict.fromkeys(int(x) for x in (material_ids or [])))
     with get_db() as conn:
@@ -122,11 +131,15 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
             (work_date, customer_code.strip(), note or '', submitter or '', now),
         )
         did = cur.lastrowid
-        for ow, oh, iw, ih, qty in items:
+        for it in items:
+            ow, oh, iw, ih, qty = it[0], it[1], it[2], it[3], it[4]
+            hl = it[5] if len(it) > 5 else None
+            hb = it[6] if len(it) > 6 else None
             conn.execute(
-                '''INSERT INTO demand_item (demand_id, ow, oh, iw, ih, qty)
-                   VALUES (?,?,?,?,?,?)''',
-                (did, ow, oh, iw, ih, qty),
+                '''INSERT INTO demand_item
+                   (demand_id, ow, oh, iw, ih, qty, hole_left, hole_bottom)
+                   VALUES (?,?,?,?,?,?,?,?)''',
+                (did, ow, oh, iw, ih, qty, hl, hb),
             )
         for mid in material_ids:
             conn.execute(
@@ -138,7 +151,7 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
 
 def update_demand(demand_id, work_date, customer_code, items, note='', submitter='',
                   material_ids=None):
-    """仅允许修改 pending 需求。items/material_ids 规则同 create_demand。"""
+    """仅允许修改 pending 需求。"""
     material_ids = list(dict.fromkeys(int(x) for x in (material_ids or [])))
     with get_db() as conn:
         row = conn.execute('SELECT status FROM demand WHERE id = ?', (demand_id,)).fetchone()
@@ -161,11 +174,15 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
         )
         conn.execute('DELETE FROM demand_item WHERE demand_id = ?', (demand_id,))
         conn.execute('DELETE FROM demand_material WHERE demand_id = ?', (demand_id,))
-        for ow, oh, iw, ih, qty in items:
+        for it in items:
+            ow, oh, iw, ih, qty = it[0], it[1], it[2], it[3], it[4]
+            hl = it[5] if len(it) > 5 else None
+            hb = it[6] if len(it) > 6 else None
             conn.execute(
-                '''INSERT INTO demand_item (demand_id, ow, oh, iw, ih, qty)
-                   VALUES (?,?,?,?,?,?)''',
-                (demand_id, ow, oh, iw, ih, qty),
+                '''INSERT INTO demand_item
+                   (demand_id, ow, oh, iw, ih, qty, hole_left, hole_bottom)
+                   VALUES (?,?,?,?,?,?,?,?)''',
+                (demand_id, ow, oh, iw, ih, qty, hl, hb),
             )
         for mid in material_ids:
             conn.execute(

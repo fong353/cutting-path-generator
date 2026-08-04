@@ -1,4 +1,6 @@
-"""EPS 输出（切割路径；不写客户代码）。内孔首版居中。"""
+"""EPS 输出（切割路径；不写客户代码）。内孔支持偏移。"""
+
+from app.hole_geom import resolve_hole_offset
 
 CM = 28.34645669  # 1 cm = PT 点
 
@@ -8,16 +10,16 @@ def _rect(L, x1, y1, x2, y2):
           f"{x1:.3f} {y1:.3f} l", f"{x1:.3f} {y2:.3f} l", f"{x2:.3f} {y2:.3f} l"]
 
 
-def _inner_xy(x, y, pw, ph, piw, pih):
-    """内孔左下/右上（cm）。居中；后期可改为 x+iox 等。"""
-    return (x + (pw - piw) / 2, y + (ph - pih) / 2,
-            x + (pw + piw) / 2, y + (ph + pih) / 2)
+def _inner_xy(x, y, pw, ph, piw, pih, hl=None, hb=None):
+    """内孔左下/右上（sheet cm）。"""
+    rhl, rhb = resolve_hole_offset(pw, ph, piw, pih, hl, hb)
+    return (x + rhl, y + rhb, x + rhl + piw, y + rhb + pih)
 
 
 def make_eps(placed, path, mat_w, mat_h, secondary=None):
     """
-    placed   : [(type, x, y, pw, ph, piw, pih[, customer_code])]  cm
-    secondary: [(x, y, pw, ph, piw, pih)]  cm
+    placed: (type, x, y, pw, ph, piw, pih[, code[, hl, hb]])
+    secondary: (x, y, pw, ph, piw, pih)  — 尾料孔仍居中
     """
     def p(v):
         return v * CM
@@ -25,9 +27,11 @@ def make_eps(placed, path, mat_w, mat_h, secondary=None):
     sw, sh = p(mat_w), p(mat_h)
     sec = secondary or []
 
-    def placed_geom(row):
-        # 兼容 7 元组与带 customer_code 的 8 元组
-        return row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+    def placed_parts(row):
+        typ, x, y, pw, ph, piw, pih = row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+        hl = row[8] if len(row) > 8 else None
+        hb = row[9] if len(row) > 9 else None
+        return typ, x, y, pw, ph, piw, pih, hl, hb
 
     lines = [
         "%!PS-Adobe-2.0 EPSF-2.0",
@@ -46,7 +50,7 @@ def make_eps(placed, path, mat_w, mat_h, secondary=None):
         "] setcolorspace", "1.0 setcolor", "newpath",
     ]
     for row in placed:
-        _, x, y, pw, ph, _, _ = placed_geom(row)
+        _, x, y, pw, ph, _, _, _, _ = placed_parts(row)
         _rect(lines, p(x), p(y), p(x + pw), p(y + ph))
     for x, y, pw, ph, piw, pih in sec:
         _rect(lines, p(x), p(y), p(x + pw), p(y + ph))
@@ -54,9 +58,9 @@ def make_eps(placed, path, mat_w, mat_h, secondary=None):
 
     inner_lines = []
     for row in placed:
-        _, x, y, pw, ph, piw, pih = placed_geom(row)
+        _, x, y, pw, ph, piw, pih, hl, hb = placed_parts(row)
         if piw > 0:
-            x1, y1, x2, y2 = _inner_xy(x, y, pw, ph, piw, pih)
+            x1, y1, x2, y2 = _inner_xy(x, y, pw, ph, piw, pih, hl, hb)
             _rect(inner_lines, p(x1), p(y1), p(x2), p(y2))
     for x, y, pw, ph, piw, pih in sec:
         if piw > 0:

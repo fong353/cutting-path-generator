@@ -58,7 +58,13 @@
         <td><input name="iw" inputmode="decimal" placeholder="实心留空"></td>
         <td><input name="ih" inputmode="decimal" placeholder="实心留空"></td>
         <td><input name="qty" inputmode="numeric" value="1"></td>
-        <td><button type="button" class="btn secondary small" onclick="delItem(this)">删</button></td>
+        <td style="white-space:nowrap">
+          <input type="hidden" name="hole_left" value="">
+          <input type="hidden" name="hole_bottom" value="">
+          <button type="button" class="btn secondary small" data-hole-btn title="画框中孔位置">中孔偏移</button>
+          <span class="hole-tip">居中</span>
+          <button type="button" class="btn secondary small" onclick="delItem(this)">删</button>
+        </td>
       </tr>`;
     }
 
@@ -92,6 +98,7 @@
           <tbody class="item-body">${itemRowHtml(bi)}</tbody>
         </table>
         <button type="button" class="btn secondary small" onclick="addItem(this, ${bi})">＋ 增加一行</button>
+        <p class="muted" style="margin-top:8px">带孔件=画框（要外减孔）。默认孔居中；少用时点「中孔偏移」。</p>
       `;
       document.getElementById('customerBlocks').appendChild(box);
     }
@@ -117,5 +124,6 @@
 
     addCustomer();
   </script>
+  <script src="/static/hole_offset.js"></script>
 </body>
 </html>

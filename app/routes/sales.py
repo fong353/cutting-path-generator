@@ -61,6 +61,8 @@ def _parse_multi_customer_form(form):
     iw_list = form.getlist('iw')
     ih_list = form.getlist('ih')
     qty_list = form.getlist('qty')
+    hl_list = form.getlist('hole_left')
+    hb_list = form.getlist('hole_bottom')
 
     for i in range(len(ow_list)):
         row = {
@@ -69,8 +71,10 @@ def _parse_multi_customer_form(form):
             'iw': iw_list[i] if i < len(iw_list) else '',
             'ih': ih_list[i] if i < len(ih_list) else '',
             'qty': qty_list[i] if i < len(qty_list) else '',
+            'hole_left': hl_list[i] if i < len(hl_list) else '',
+            'hole_bottom': hb_list[i] if i < len(hb_list) else '',
         }
-        if not any(str(row[k]).strip() for k in row):
+        if not any(str(row[k]).strip() for k in ('ow', 'oh', 'iw', 'ih', 'qty')):
             continue
         try:
             bi = int(i_blocks[i]) if i < len(i_blocks) else 0
@@ -79,8 +83,8 @@ def _parse_multi_customer_form(form):
         if bi not in items_by_block:
             raise ValueError(f'件第 {i + 1} 行：客户块无效')
         code = (codes[bi] if bi < len(codes) else '').strip() or '临时'
-        _typ, ow, oh, iw, ih, qty, _c = parse_item_row(row, code, i)
-        items_by_block[bi].append((ow, oh, iw, ih, qty))
+        _typ, ow, oh, iw, ih, qty, _c, hl, hb = parse_item_row(row, code, i)
+        items_by_block[bi].append((ow, oh, iw, ih, qty, hl, hb))
 
     blocks = []
     for bi, code in enumerate(codes):
@@ -235,6 +239,8 @@ async def sales_update(request: Request, demand_id: int):
         iw_list = form.getlist('iw')
         ih_list = form.getlist('ih')
         qty_list = form.getlist('qty')
+        hl_list = form.getlist('hole_left')
+        hb_list = form.getlist('hole_bottom')
         for i in range(len(ow_list)):
             row = {
                 'ow': ow_list[i],
@@ -242,11 +248,13 @@ async def sales_update(request: Request, demand_id: int):
                 'iw': iw_list[i] if i < len(iw_list) else '',
                 'ih': ih_list[i] if i < len(ih_list) else '',
                 'qty': qty_list[i] if i < len(qty_list) else '',
+                'hole_left': hl_list[i] if i < len(hl_list) else '',
+                'hole_bottom': hb_list[i] if i < len(hb_list) else '',
             }
-            if not any(str(row[k]).strip() for k in row):
+            if not any(str(row[k]).strip() for k in ('ow', 'oh', 'iw', 'ih', 'qty')):
                 continue
-            _t, ow, oh, iw, ih, qty, _c = parse_item_row(row, customer_code, i)
-            items.append((ow, oh, iw, ih, qty))
+            _t, ow, oh, iw, ih, qty, _c, hl, hb = parse_item_row(row, customer_code, i)
+            items.append((ow, oh, iw, ih, qty, hl, hb))
         if not items:
             raise ValueError('请至少填写一件')
         db.update_demand(

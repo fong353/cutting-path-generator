@@ -70,12 +70,15 @@ def _items_from_demands(demands):
         code = d['customer_code']
         for it in d.get('item_rows', []):
             typ = 'frame' if float(it['iw'] or 0) > 0 else 'solid'
+            hl = it.get('hole_left')
+            hb = it.get('hole_bottom')
             items.append((
                 typ,
                 float(it['ow']), float(it['oh']),
                 float(it['iw'] or 0), float(it['ih'] or 0),
                 int(it['qty']),
                 code,
+                hl, hb,
             ))
     return items
 

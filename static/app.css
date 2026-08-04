@@ -158,3 +158,31 @@ th { color: var(--muted); font-weight: 600; }
   margin-bottom: 8px;
 }
 .cust-head h2 { margin: 0; }
+.hole-tip { color: var(--muted); font-size: 0.8rem; margin-left: 4px; }
+.hole-modal-mask {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 16px;
+}
+.hole-modal {
+  background: #fff; border-radius: 12px; padding: 20px;
+  max-width: 520px; width: 100%;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18);
+  max-height: 92vh; overflow: auto;
+}
+.hole-modal h2 { margin: 0 0 8px; }
+.hole-svg-wrap {
+  margin: 12px 0 8px; text-align: center;
+  background: #fafafa; border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px;
+}
+.hole-legend { font-size: 0.88rem; margin-bottom: 8px; }
+.hole-legend-row {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+  margin-bottom: 6px; align-items: center;
+}
+.hole-legend .swatch {
+  display: inline-block; width: 14px; height: 14px;
+  border-radius: 3px; border: 1px solid #ccc;
+  margin-right: 4px; vertical-align: -2px;
+}

@@ -63,6 +63,7 @@
         </div>
 
         <h2>件明细</h2>
+        <p class="muted">带孔=画框。默认孔居中；点「中孔偏移」可改（二级，少用）。</p>
         <table>
           <thead>
             <tr><th>外框宽</th><th>外框高</th><th>内孔宽</th><th>内孔高</th><th>数量</th><th></th></tr>
@@ -75,7 +76,15 @@
               <td><input name="iw" value="{{ it.iw or '' }}" {% if readonly %}disabled{% endif %}></td>
               <td><input name="ih" value="{{ it.ih or '' }}" {% if readonly %}disabled{% endif %}></td>
               <td><input name="qty" value="{{ it.qty }}" {% if readonly %}disabled{% endif %}></td>
-              <td>{% if not readonly %}<button type="button" class="btn secondary small" onclick="delRow(this)">删</button>{% endif %}</td>
+              <td style="white-space:nowrap">
+                <input type="hidden" name="hole_left" value="{{ it.hole_left if it.hole_left is not none else '' }}" {% if readonly %}disabled{% endif %}>
+                <input type="hidden" name="hole_bottom" value="{{ it.hole_bottom if it.hole_bottom is not none else '' }}" {% if readonly %}disabled{% endif %}>
+                {% if not readonly %}
+                <button type="button" class="btn secondary small" data-hole-btn>中孔偏移</button>
+                {% endif %}
+                <span class="hole-tip">{% if it.hole_left is not none %}偏 L{{ it.hole_left }} 下{{ it.hole_bottom }}{% else %}居中{% endif %}</span>
+                {% if not readonly %}<button type="button" class="btn secondary small" onclick="delRow(this)">删</button>{% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -107,7 +116,13 @@
         <td><input name="ow"></td><td><input name="oh"></td>
         <td><input name="iw"></td><td><input name="ih"></td>
         <td><input name="qty" value="1"></td>
-        <td><button type="button" class="btn secondary small" onclick="delRow(this)">删</button></td>`;
+        <td style="white-space:nowrap">
+          <input type="hidden" name="hole_left" value="">
+          <input type="hidden" name="hole_bottom" value="">
+          <button type="button" class="btn secondary small" data-hole-btn>中孔偏移</button>
+          <span class="hole-tip">居中</span>
+          <button type="button" class="btn secondary small" onclick="delRow(this)">删</button>
+        </td>`;
       document.getElementById('itemBody').appendChild(tr);
     }
     function delRow(btn) {
@@ -116,6 +131,7 @@
       btn.closest('tr').remove();
     }
   </script>
+  <script src="/static/hole_offset.js"></script>
   {% endif %}
 </body>
 </html>

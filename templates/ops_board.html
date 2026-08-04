@@ -249,8 +249,10 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(x, y, pw, ph);
         if (p.piw > 0) {
-          const ix = x + (pw - p.piw * scale) / 2;
-          const iy = y + (ph - p.pih * scale) / 2;
+          const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
+          const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
+          const ix = x + hl * scale;
+          const iy = y + (p.ph - hb - p.pih) * scale; // canvas y 向下
           ctx.strokeStyle = '#06c';
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
         }
