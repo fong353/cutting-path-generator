@@ -20,7 +20,7 @@
     {% else %}
     <div class="card">
       <h1>需求 #{{ demand.id }}
-        <span class="tag">{{ demand.status }}</span>
+        <span class="tag">{% if demand.status == 'pending' %}待拼板{% elif demand.status == 'done' %}已完成{% else %}{{ demand.status }}{% endif %}</span>
       </h1>
       {% if request.query_params.get('saved') %}<div class="ok">已保存</div>{% endif %}
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
@@ -50,57 +50,71 @@
           </div>
         </div>
 
-        <h2>材料种类 *</h2>
-        <div class="mat-checks">
-          {% for m in catalog %}
-          <label class="check">
-            <input type="checkbox" name="material_id" value="{{ m.id }}"
-              {% if m.id in selected_ids %}checked{% endif %}
-              {% if readonly %}disabled{% endif %}>
-            {{ m.name }}
-          </label>
-          {% endfor %}
+        <div class="mat-sections">
+          <section class="mat-section">
+            <div class="mat-section-head">
+              <div class="mat-section-title">
+                <label>材料种类 *</label>
+                <div class="mat-checks">
+                  {% for m in catalog %}
+                  <label class="check">
+                    <input type="checkbox" name="material_id" value="{{ m.id }}"
+                      {% if m.id in selected_ids %}checked{% endif %}
+                      {% if readonly %}disabled{% endif %}>
+                    {{ m.name }}
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <h3>件明细</h3>
+            <p class="muted">带孔=画框。默认孔居中；点「中孔偏移」可改（二级，少用）。新提交按「一种材料一段」拆单；此处多选时件明细对所选材料共用。</p>
+            <table>
+              <thead>
+                <tr><th>外框宽（cm）</th><th>外框高（cm）</th><th>内孔宽（cm）</th><th>内孔高（cm）</th><th>数量</th><th></th></tr>
+              </thead>
+              <tbody id="itemBody">
+                {% for it in demand.item_rows %}
+                <tr>
+                  <td><input name="ow" value="{{ it.ow }}" {% if readonly %}disabled{% endif %}></td>
+                  <td><input name="oh" value="{{ it.oh }}" {% if readonly %}disabled{% endif %}></td>
+                  <td><input name="iw" value="{{ it.iw or '' }}" {% if readonly %}disabled{% endif %}></td>
+                  <td><input name="ih" value="{{ it.ih or '' }}" {% if readonly %}disabled{% endif %}></td>
+                  <td><input name="qty" value="{{ it.qty }}" {% if readonly %}disabled{% endif %}></td>
+                  <td style="white-space:nowrap">
+                    <input type="hidden" name="hole_left" value="{{ it.hole_left if it.hole_left is not none else '' }}" {% if readonly %}disabled{% endif %}>
+                    <input type="hidden" name="hole_bottom" value="{{ it.hole_bottom if it.hole_bottom is not none else '' }}" {% if readonly %}disabled{% endif %}>
+                    {% if not readonly %}
+                    <button type="button" class="btn secondary small" data-hole-btn>中孔偏移</button>
+                    {% endif %}
+                    <span class="hole-tip">{% if it.hole_left is not none %}偏 L{{ it.hole_left }} 下{{ it.hole_bottom }}{% else %}居中{% endif %}</span>
+                    {% if not readonly %}<button type="button" class="btn secondary small" onclick="delRow(this)">删</button>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% if not readonly %}
+            <div class="actions">
+              <button type="button" class="btn secondary" onclick="addRow()">＋ 增加一行</button>
+              <button type="submit" class="btn">保存修改</button>
+            </div>
+            {% endif %}
+          </section>
         </div>
-
-        <h2>件明细</h2>
-        <p class="muted">带孔=画框。默认孔居中；点「中孔偏移」可改（二级，少用）。</p>
-        <table>
-          <thead>
-            <tr><th>外框宽</th><th>外框高</th><th>内孔宽</th><th>内孔高</th><th>数量</th><th></th></tr>
-          </thead>
-          <tbody id="itemBody">
-            {% for it in demand.item_rows %}
-            <tr>
-              <td><input name="ow" value="{{ it.ow }}" {% if readonly %}disabled{% endif %}></td>
-              <td><input name="oh" value="{{ it.oh }}" {% if readonly %}disabled{% endif %}></td>
-              <td><input name="iw" value="{{ it.iw or '' }}" {% if readonly %}disabled{% endif %}></td>
-              <td><input name="ih" value="{{ it.ih or '' }}" {% if readonly %}disabled{% endif %}></td>
-              <td><input name="qty" value="{{ it.qty }}" {% if readonly %}disabled{% endif %}></td>
-              <td style="white-space:nowrap">
-                <input type="hidden" name="hole_left" value="{{ it.hole_left if it.hole_left is not none else '' }}" {% if readonly %}disabled{% endif %}>
-                <input type="hidden" name="hole_bottom" value="{{ it.hole_bottom if it.hole_bottom is not none else '' }}" {% if readonly %}disabled{% endif %}>
-                {% if not readonly %}
-                <button type="button" class="btn secondary small" data-hole-btn>中孔偏移</button>
-                {% endif %}
-                <span class="hole-tip">{% if it.hole_left is not none %}偏 L{{ it.hole_left }} 下{{ it.hole_bottom }}{% else %}居中{% endif %}</span>
-                {% if not readonly %}<button type="button" class="btn secondary small" onclick="delRow(this)">删</button>{% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% if not readonly %}
-        <div class="actions">
-          <button type="button" class="btn secondary" onclick="addRow()">＋ 增加一行</button>
-          <button type="submit" class="btn">保存修改</button>
-        </div>
-        {% endif %}
       </form>
 
       {% if not readonly %}
       <form method="post" action="/sales/demands/{{ demand.id }}/delete"
             style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)"
             onsubmit="return confirm('确认删除需求 #{{ demand.id }}（客户 {{ demand.customer_code }}）？此操作不可恢复。');">
+        <input type="hidden" name="date" value="{{ demand.work_date }}">
+        <button type="submit" class="btn danger">删除此需求</button>
+      </form>
+      {% else %}
+      <form method="post" action="/sales/demands/{{ demand.id }}/delete"
+            style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)"
+            onsubmit="return confirm('该需求已完成。确认仍要删除 #{{ demand.id }}（客户 {{ demand.customer_code }}）？此操作不可恢复。');">
         <input type="hidden" name="date" value="{{ demand.work_date }}">
         <button type="submit" class="btn danger">删除此需求</button>
       </form>
@@ -131,8 +145,12 @@
       btn.closest('tr').remove();
     }
   </script>
+  <script>
+    window.CUT_SHEET = { w: {{ sheet_w|default(120) }}, h: {{ sheet_h|default(100) }} };
+  </script>
   <script src="/static/submitter_cache.js"></script>
   <script src="/static/hole_offset.js"></script>
+  <script src="/static/item_validate.js"></script>
   {% endif %}
 </body>
 </html>

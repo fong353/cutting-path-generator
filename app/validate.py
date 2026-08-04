@@ -1,5 +1,7 @@
 """输入校验（无 GUI）。出错抛 ValueError，消息给人看。"""
 
+from app.config import SHEET_H, SHEET_W, fits_sheet
+
 
 def parse_gap(raw):
     try:
@@ -83,6 +85,11 @@ def parse_item_row(vals, customer_code, row_index=0):
             raise ValueError()
     except (ValueError, TypeError, KeyError, IndexError):
         raise ValueError(f'件第 {r} 行：外框宽/高 和 数量 必须大于 0') from None
+
+    if not fits_sheet(ow, oh):
+        raise ValueError(
+            f'件第 {r} 行：外框须小于板材 {SHEET_W:g}×{SHEET_H:g} cm（可旋转）'
+        )
 
     has_w, has_h = iw_s != '', ih_s != ''
     if has_w != has_h:

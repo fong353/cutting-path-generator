@@ -28,7 +28,7 @@
           {% for m in demand.materials %}<span class="tag">{{ m.name }}</span>{% else %}—{% endfor %}
         </p>
         <table>
-          <thead><tr><th>外宽</th><th>外高</th><th>内宽</th><th>内高</th><th>数量</th></tr></thead>
+          <thead><tr><th>外宽（cm）</th><th>外高（cm）</th><th>内宽（cm）</th><th>内高（cm）</th><th>数量</th></tr></thead>
           <tbody>
           {% for it in demand.item_rows %}
             <tr>

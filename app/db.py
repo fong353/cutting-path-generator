@@ -375,5 +375,49 @@ def save_job_run(demand_ids, materials_snapshot, eps_paths):
         )
 
 
+def list_job_runs(work_date=None, limit=80):
+    """
+    生成记录（新→旧）。
+    work_date：保留与该业务日相关的记录（任务业务日或生成日落在该日）。
+    每条含 keys / jobs 摘要 / eps_paths 原始路径。
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            'SELECT * FROM job_run ORDER BY id DESC LIMIT ?',
+            (max(int(limit), 1),),
+        ).fetchall()
+    out = []
+    for r in rows:
+        run = dict(r)
+        try:
+            keys = json.loads(run.get('demand_ids') or '[]')
+        except json.JSONDecodeError:
+            keys = []
+        try:
+            paths = json.loads(run.get('eps_paths') or '[]')
+        except json.JSONDecodeError:
+            paths = []
+        try:
+            mats = json.loads(run.get('materials_snapshot') or '[]')
+        except json.JSONDecodeError:
+            mats = []
+        jobs = get_jobs_by_keys(keys)
+        created = run.get('created_at') or ''
+        if work_date:
+            related = any(j.get('work_date') == work_date for j in jobs)
+            same_day = created.startswith(work_date)
+            if not related and not same_day:
+                continue
+        out.append({
+            'id': run['id'],
+            'created_at': created,
+            'keys': keys,
+            'jobs': jobs,
+            'eps_paths': paths,
+            'materials_snapshot': mats,
+        })
+    return out
+
+
 def today_str():
     return date.today().isoformat()

@@ -9,7 +9,7 @@
 <body>
   <div class="wrap" style="max-width:1280px">
     <div class="topnav">
-      <span class="brand">操作员 · 混拼工作台</span>
+      <span class="brand">操作员 · {% if review %}拼版检查{% else %}混拼工作台{% endif %}</span>
       <a href="/ops{% if pin %}?pin={{ pin }}{% endif %}">返回待拼池</a>
       <a href="/">首页</a>
     </div>
@@ -18,12 +18,18 @@
     <div class="card"><div class="err">未选择有效任务</div></div>
     {% else %}
 
+    {% if review %}
     <div class="card">
-      <h2>已选任务（客户 × 材料）</h2>
+      <div class="ok" style="margin:0">拼版检查：可改板材/间距/尾料后点预览；需要时可重新生成 EPS（已完成任务不会改回未完成）。</div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>{% if review %}检查任务{% else %}已选任务{% endif %}（客户 × 材料）</h2>
       {% for j in jobs %}
         <span class="tag">{{ j.customer_code }}</span>
         <span class="tag">{{ j.material_name }}</span>
-        <span class="muted">#{{ j.demand_id }} {{ j.job_status }}</span>
+        <span class="muted">#{{ j.demand_id }} {% if j.job_status == 'pending' %}待拼板{% elif j.job_status == 'done' %}已完成{% else %}{{ j.job_status }}{% endif %}</span>
         {% for it in j.item_rows %}
           <span class="muted">{{ it.ow }}×{{ it.oh }}×{{ it.qty }}</span>
         {% endfor %}
@@ -37,7 +43,7 @@
           <h2>材料（种类可继承任务；宽高手填）</h2>
           <table>
             <thead>
-              <tr><th>种类</th><th>宽</th><th>高</th><th>张数</th><th></th></tr>
+              <tr><th>种类</th><th>宽（cm）</th><th>高（cm）</th><th>张数</th><th></th></tr>
             </thead>
             <tbody id="matBody"></tbody>
           </table>
@@ -47,7 +53,7 @@
           <h2>参数 / 尾料</h2>
           <div class="row cols-2">
             <div>
-              <label>间距(cm)</label>
+              <label>间距（cm）</label>
               <input id="gap" value="{{ defaults.gap }}">
             </div>
             <div>
@@ -58,13 +64,13 @@
           <label><input type="checkbox" id="fillLast" {% if defaults.fill_last %}checked{% endif %}> 最后一张填充</label>
           <h2 style="margin-top:16px">尾料</h2>
           <table>
-            <thead><tr><th>启用</th><th>外宽</th><th>外高</th><th>内宽</th><th>内高</th><th></th></tr></thead>
+            <thead><tr><th>启用</th><th>外宽（cm）</th><th>外高（cm）</th><th>内宽（cm）</th><th>内高（cm）</th><th></th></tr></thead>
             <tbody id="fillBody"></tbody>
           </table>
           <button type="button" class="btn secondary small" onclick="addFill()">＋ 尾料行</button>
           <div class="actions">
             <button type="button" class="btn" onclick="doPreview()">预览</button>
-            <button type="button" class="btn green" onclick="doGenerate()">生成 EPS</button>
+            <button type="button" class="btn green" onclick="doGenerate()">{% if review %}重新生成 EPS{% else %}生成 EPS{% endif %}</button>
           </div>
           <div id="msg" class="muted" style="margin-top:10px"></div>
         </div>
@@ -79,7 +85,7 @@
           <button type="button" class="btn secondary small" onclick="nextSheet()">▶</button>
           <span id="utilLabel" class="muted"></span>
         </div>
-        <pre id="epsList" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre>
+        <div id="epsList" class="eps-downloads" style="margin-top:12px"></div>
       </div>
     </div>
     {% endif %}
@@ -91,6 +97,7 @@
     const DEFAULTS = {{ defaults | tojson }};
     const SUGGESTED_MATS = {{ suggested_mats | tojson }};
     const PIN = {{ pin | tojson }};
+    const REVIEW = {{ review | default(false) | tojson }};
     let sheets = [];
     let cur = 0;
 
@@ -176,6 +183,35 @@
       return res.json();
     }
 
+    function withPin(url) {
+      if (!PIN || !url) return url;
+      return url + (url.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(PIN);
+    }
+
+    function showEpsDownloads(data) {
+      const box = document.getElementById('epsList');
+      const files = data.eps_files || [];
+      if (!files.length) {
+        box.innerHTML = '';
+        return;
+      }
+      let html = '<div class="actions" style="margin-top:0">';
+      if (files.length > 1 && data.zip_url) {
+        html += `<a class="btn small" href="${withPin(data.zip_url)}">打包下载 ZIP（${files.length}）</a>`;
+      }
+      for (const f of files) {
+        html += `<a class="btn secondary small" href="${withPin(f.url)}" download="${f.name}">下载 ${f.name}</a>`;
+      }
+      html += '</div>';
+      box.innerHTML = html;
+      // 多文件优先提示打包；单文件直接打开下载
+      if (files.length === 1) {
+        window.location.href = withPin(files[0].url);
+      } else if (data.zip_url) {
+        window.location.href = withPin(data.zip_url);
+      }
+    }
+
     async function doPreview() {
       const msg = document.getElementById('msg');
       msg.textContent = '计算中…';
@@ -187,11 +223,14 @@
       msg.textContent = sheets.length
         ? `共 ${sheets.length} 张` + (data.n_remaining ? `，仍剩 ${data.n_remaining} 件排不下` : '')
         : '无板材';
-      document.getElementById('epsList').textContent = '';
+      document.getElementById('epsList').innerHTML = '';
     }
 
     async function doGenerate() {
-      if (!confirm('确认生成 EPS 并将所选「客户×材料」任务标为完成？')) return;
+      const tip = REVIEW
+        ? '确认按当前参数重新生成 EPS？（不会改回未完成）'
+        : '确认生成 EPS 并将所选「客户×材料」任务标为完成？';
+      if (!confirm(tip)) return;
       const msg = document.getElementById('msg');
       msg.textContent = '生成中…';
       const data = await postJson('/ops/board/generate', collectBody());
@@ -199,9 +238,10 @@
       sheets = data.sheets || [];
       cur = Math.max(0, sheets.length - 1);
       draw();
-      msg.innerHTML = `<span class="ok">已生成 ${data.eps_paths.length} 个 EPS</span>` +
+      const n = (data.eps_files || data.eps_paths || []).length;
+      msg.innerHTML = `<span class="ok">已生成 ${n} 个 EPS，开始下载…</span>` +
         (data.n_remaining ? `（仍剩 ${data.n_remaining} 件）` : '');
-      document.getElementById('epsList').textContent = (data.eps_paths || []).join('\n');
+      showEpsDownloads(data);
     }
 
     function prevSheet() { if (!sheets.length) return; cur = (cur - 1 + sheets.length) % sheets.length; draw(); }

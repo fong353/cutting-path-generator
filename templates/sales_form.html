@@ -16,7 +16,7 @@
 
     <div class="card">
       <h1>提交切割需求</h1>
-      <p class="muted">一次可添加多个客户；每个客户可多选材料、多行件。板材宽高由操作员拼板时手填。</p>
+      <p class="muted">一次可添加多个客户；每个客户可添加多种材料（分隔显示），每种材料各自填写件明细。外框须小于板材 {{ sheet_w|default(120)|int }}×{{ sheet_h|default(100)|int }} cm。板材宽高由操作员拼板时手填。</p>
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
       <form method="post" action="/sales/submit" id="salesForm">
         <div class="row cols-2">
@@ -41,18 +41,17 @@
   <script>
     const CATALOG = {{ catalog | tojson }};
     let blockSeq = 0;
+    let matSeq = 0;
 
-    function matChecksHtml(bi) {
-      return CATALOG.map(m => `
-        <label class="check">
-          <input type="checkbox" name="c_mat" value="${bi}:${m.id}">
-          ${m.name}
-        </label>`).join('');
+    function matOptionsHtml(selectedId) {
+      return CATALOG.map(m =>
+        `<option value="${m.id}" ${String(m.id) === String(selectedId) ? 'selected' : ''}>${m.name}</option>`
+      ).join('');
     }
 
-    function itemRowHtml(bi) {
+    function itemRowHtml(mi) {
       return `<tr>
-        <td><input type="hidden" name="i_block" value="${bi}">
+        <td><input type="hidden" name="i_msec" value="${mi}">
             <input name="ow" inputmode="decimal"></td>
         <td><input name="oh" inputmode="decimal"></td>
         <td><input name="iw" inputmode="decimal" placeholder="实心留空"></td>
@@ -66,6 +65,60 @@
           <button type="button" class="btn secondary small" onclick="delItem(this)">删</button>
         </td>
       </tr>`;
+    }
+
+    function pickDefaultMatId(blockEl) {
+      const used = new Set(
+        [...blockEl.querySelectorAll('select[name="m_mat"]')].map(s => s.value)
+      );
+      const prefer = CATALOG.find(m => m.name === '白卡纸' && !used.has(String(m.id)));
+      if (prefer) return prefer.id;
+      const free = CATALOG.find(m => !used.has(String(m.id)));
+      return free ? free.id : (CATALOG[0] && CATALOG[0].id);
+    }
+
+    function matSectionHtml(bi, mi, matId) {
+      return `
+        <section class="mat-section" data-mi="${mi}">
+          <div class="mat-section-head">
+            <div class="mat-section-title">
+              <label>材料种类 *</label>
+              <select name="m_mat" required>
+                ${matOptionsHtml(matId)}
+              </select>
+              <input type="hidden" name="m_block" value="${bi}">
+              <input type="hidden" name="m_msec" value="${mi}">
+            </div>
+            <button type="button" class="btn secondary small" onclick="removeMatSection(this)">移除材料</button>
+          </div>
+          <h3>件明细</h3>
+          <table>
+            <thead>
+              <tr><th>外框宽（cm）</th><th>外框高（cm）</th><th>内孔宽（cm）</th><th>内孔高（cm）</th><th>数量</th><th></th></tr>
+            </thead>
+            <tbody class="item-body">${itemRowHtml(mi)}</tbody>
+          </table>
+          <button type="button" class="btn secondary small" onclick="addItem(this, ${mi})">＋ 增加一行</button>
+          <p class="muted" style="margin-top:8px">带孔件=画框（要外减孔）。默认孔居中；少用时点「中孔偏移」。</p>
+        </section>`;
+    }
+
+    function addMatSection(blockEl, bi) {
+      const mi = matSeq++;
+      const matId = pickDefaultMatId(blockEl);
+      blockEl.querySelector('.mat-sections').insertAdjacentHTML(
+        'beforeend', matSectionHtml(bi, mi, matId)
+      );
+    }
+
+    function removeMatSection(btn) {
+      const block = btn.closest('.customer-block');
+      const sections = block.querySelectorAll('.mat-section');
+      if (sections.length <= 1) {
+        alert('每个客户至少保留一种材料');
+        return;
+      }
+      btn.closest('.mat-section').remove();
     }
 
     function addCustomer() {
@@ -88,19 +141,14 @@
             <input name="c_note" placeholder="可选">
           </div>
         </div>
-        <h2>材料种类 *</h2>
-        <div class="mat-checks">${matChecksHtml(bi)}</div>
-        <h2>件明细</h2>
-        <table>
-          <thead>
-            <tr><th>外框宽</th><th>外框高</th><th>内孔宽</th><th>内孔高</th><th>数量</th><th></th></tr>
-          </thead>
-          <tbody class="item-body">${itemRowHtml(bi)}</tbody>
-        </table>
-        <button type="button" class="btn secondary small" onclick="addItem(this, ${bi})">＋ 增加一行</button>
-        <p class="muted" style="margin-top:8px">带孔件=画框（要外减孔）。默认孔居中；少用时点「中孔偏移」。</p>
+        <div class="mat-sections"></div>
+        <div class="actions" style="margin-top:4px">
+          <button type="button" class="btn secondary small" data-add-mat>＋ 添加材料</button>
+        </div>
       `;
+      box.querySelector('[data-add-mat]').onclick = () => addMatSection(box, bi);
       document.getElementById('customerBlocks').appendChild(box);
+      addMatSection(box, bi);
     }
 
     function removeCustomer(btn) {
@@ -112,8 +160,9 @@
       btn.closest('.customer-block').remove();
     }
 
-    function addItem(btn, bi) {
-      btn.closest('.customer-block').querySelector('.item-body').insertAdjacentHTML('beforeend', itemRowHtml(bi));
+    function addItem(btn, mi) {
+      btn.closest('.mat-section').querySelector('.item-body')
+        .insertAdjacentHTML('beforeend', itemRowHtml(mi));
     }
 
     function delItem(btn) {
@@ -124,7 +173,11 @@
 
     addCustomer();
   </script>
+  <script>
+    window.CUT_SHEET = { w: {{ sheet_w|default(120) }}, h: {{ sheet_h|default(100) }} };
+  </script>
   <script src="/static/submitter_cache.js"></script>
   <script src="/static/hole_offset.js"></script>
+  <script src="/static/item_validate.js"></script>
 </body>
 </html>

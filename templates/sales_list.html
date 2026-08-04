@@ -15,7 +15,7 @@
     </div>
     <div class="card">
       <h1>按日查看</h1>
-      <p class="muted">点「查看/修改」进入二级页。仅 <strong>pending</strong> 可改、可删；已拼板完成不可改删。</p>
+      <p class="muted">点「查看/修改」进入二级页。待拼板可改；<strong>已完成也可删除</strong>（不可改内容）。</p>
       {% if request.query_params.get('deleted') %}
       <div class="ok">已删除需求 #{{ request.query_params.get('deleted') }}</div>
       {% endif %}
@@ -41,19 +41,17 @@
             <td>
               {% for m in d.materials %}<span class="tag">{{ m.name }}</span>{% else %}—{% endfor %}
             </td>
-            <td>{{ d.status }}</td>
+            <td>{% if d.status == 'pending' %}待拼板{% elif d.status == 'done' %}已完成{% else %}{{ d.status }}{% endif %}</td>
             <td>{{ d.item_rows|length }}</td>
             <td>{{ d.submitter or '—' }}</td>
             <td>{{ d.created_at }}</td>
             <td style="white-space:nowrap">
               <a class="btn secondary small" href="/sales/demands/{{ d.id }}">查看/修改</a>
-              {% if d.status == 'pending' %}
               <form method="post" action="/sales/demands/{{ d.id }}/delete" style="display:inline"
-                    onsubmit="return confirm('确认删除需求 #{{ d.id }}？');">
+                    onsubmit="return confirm('确认删除需求 #{{ d.id }}？此操作不可恢复。');">
                 <input type="hidden" name="date" value="{{ work_date }}">
                 <button type="submit" class="btn danger small">删除</button>
               </form>
-              {% endif %}
             </td>
           </tr>
         {% endfor %}

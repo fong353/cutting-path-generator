@@ -52,11 +52,11 @@
         <p class="muted">只填「左边距」「下边距」（外框边 → 孔边）。右边、上边自动算出来，看图核对。</p>
         <div class="row cols-2">
           <div>
-            <label>← 左边距 (cm)</label>
+            <label>← 左边距（cm）</label>
             <input id="holeL" inputmode="decimal" value="${hasCustom ? hlInput.value : defL.toFixed(2)}">
           </div>
           <div>
-            <label>↓ 下边距 (cm)</label>
+            <label>↓ 下边距（cm）</label>
             <input id="holeB" inputmode="decimal" value="${hasCustom ? hbInput.value : defB.toFixed(2)}">
           </div>
         </div>

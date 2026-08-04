@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from app import db
+from app.config import SHEET_H, SHEET_W
 from app.validate import parse_item_row
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / 'templates'))
@@ -17,6 +18,8 @@ def _form_ctx(**extra):
         'error': None,
         'catalog': db.list_materials(),
         'submitter': '',
+        'sheet_w': SHEET_W,
+        'sheet_h': SHEET_H,
     }
     ctx.update(extra)
     return ctx
@@ -26,10 +29,11 @@ def _parse_multi_customer_form(form):
     """
     解析一次提交的多客户表单。
     c_code / c_note：按客户块顺序
-    c_mat：值为 "块下标:材料id"
-    i_block / ow / oh / iw / ih / qty：件行，i_block 指向客户块
+    m_block / m_mat / m_msec：材料段（属于某客户块，各自一种材料）
+    i_msec / ow / oh / iw / ih / qty：件行，挂到材料段
     返回 (work_date, submitter, blocks)
-    blocks: [{customer_code, note, material_ids, items:[(ow,oh,iw,ih,qty),...]}, ...]
+    blocks: [{customer_code, note, material_ids, items}, ...]
+    每种材料一段 → 一条 demand（material_ids 仅一个）。
     """
     work_date = (form.get('work_date') or '').strip()
     submitter = (form.get('submitter') or '').strip()
@@ -43,21 +47,31 @@ def _parse_multi_customer_form(form):
     if not codes:
         raise ValueError('请至少添加一个客户')
 
-    mats_by_block = {i: [] for i in range(len(codes))}
-    for raw in form.getlist('c_mat'):
-        raw = str(raw).strip()
-        if not raw or ':' not in raw:
-            continue
-        bi_s, mid_s = raw.split(':', 1)
-        try:
-            bi, mid = int(bi_s), int(mid_s)
-        except ValueError:
-            raise ValueError('材料选择无效') from None
-        if bi in mats_by_block:
-            mats_by_block[bi].append(mid)
+    m_blocks = form.getlist('m_block')
+    m_mats = form.getlist('m_mat')
+    m_msecs = form.getlist('m_msec')
+    if len(m_blocks) != len(m_mats) or len(m_blocks) != len(m_msecs):
+        raise ValueError('材料段数据不完整')
 
-    items_by_block = {i: [] for i in range(len(codes))}
-    i_blocks = form.getlist('i_block')
+    sections = []  # [{msec, bi, mid}]
+    msec_index = {}
+    for i in range(len(m_msecs)):
+        try:
+            bi = int(m_blocks[i])
+            mid = int(m_mats[i])
+            msec = int(m_msecs[i])
+        except (TypeError, ValueError):
+            raise ValueError('材料选择无效') from None
+        if bi < 0 or bi >= len(codes):
+            raise ValueError('材料段客户块无效')
+        if msec in msec_index:
+            raise ValueError('材料段编号重复')
+        sec = {'msec': msec, 'bi': bi, 'mid': mid}
+        msec_index[msec] = sec
+        sections.append(sec)
+
+    items_by_msec = {s['msec']: [] for s in sections}
+    i_msecs = form.getlist('i_msec')
     ow_list = form.getlist('ow')
     oh_list = form.getlist('oh')
     iw_list = form.getlist('iw')
@@ -79,37 +93,38 @@ def _parse_multi_customer_form(form):
         if not any(str(row[k]).strip() for k in ('ow', 'oh', 'iw', 'ih', 'qty')):
             continue
         try:
-            bi = int(i_blocks[i]) if i < len(i_blocks) else 0
+            msec = int(i_msecs[i]) if i < len(i_msecs) else -1
         except ValueError:
-            raise ValueError(f'件第 {i + 1} 行：客户块无效') from None
-        if bi not in items_by_block:
-            raise ValueError(f'件第 {i + 1} 行：客户块无效')
+            raise ValueError(f'件第 {i + 1} 行：材料段无效') from None
+        if msec not in items_by_msec:
+            raise ValueError(f'件第 {i + 1} 行：材料段无效')
+        bi = msec_index[msec]['bi']
         code = (codes[bi] if bi < len(codes) else '').strip() or '临时'
         _typ, ow, oh, iw, ih, qty, _c, hl, hb = parse_item_row(row, code, i)
-        items_by_block[bi].append((ow, oh, iw, ih, qty, hl, hb))
+        items_by_msec[msec].append((ow, oh, iw, ih, qty, hl, hb))
 
     blocks = []
     for bi, code in enumerate(codes):
         code = (code or '').strip()
-        note = (notes[bi] if bi < len(notes) else '') or ''
-        note = note.strip()
-        # 跳过完全空的客户块
-        if not code and not items_by_block[bi] and not mats_by_block[bi]:
+        note = ((notes[bi] if bi < len(notes) else '') or '').strip()
+        cust_secs = [s for s in sections if s['bi'] == bi]
+        has_items = any(items_by_msec[s['msec']] for s in cust_secs)
+        if not code and not cust_secs and not has_items:
             continue
         if not code:
             raise ValueError(f'客户块 {bi + 1}：请填写客户代码')
-        mids = list(dict.fromkeys(mats_by_block[bi]))
-        if not mids:
-            raise ValueError(f'客户「{code}」：请至少指定一种材料')
-        items = items_by_block[bi]
-        if not items:
-            raise ValueError(f'客户「{code}」：请至少填写一件')
-        blocks.append({
-            'customer_code': code,
-            'note': note,
-            'material_ids': mids,
-            'items': items,
-        })
+        if not cust_secs:
+            raise ValueError(f'客户「{code}」：请至少添加一种材料')
+        for s in cust_secs:
+            items = items_by_msec[s['msec']]
+            if not items:
+                raise ValueError(f'客户「{code}」：每种材料请至少填写一件')
+            blocks.append({
+                'customer_code': code,
+                'note': note,
+                'material_ids': [s['mid']],
+                'items': items,
+            })
     if not blocks:
         raise ValueError('请至少填写一个客户的需求')
     return work_date, submitter, blocks
@@ -189,6 +204,8 @@ def sales_detail(request: Request, demand_id: int):
             'catalog': db.list_materials(),
             'error': '需求不存在',
             'readonly': True,
+            'sheet_w': SHEET_W,
+            'sheet_h': SHEET_H,
         }, status_code=404)
     demand = rows[0]
     return templates.TemplateResponse('sales_edit.html', {
@@ -198,6 +215,8 @@ def sales_detail(request: Request, demand_id: int):
         'error': None,
         'readonly': demand['status'] != 'pending',
         'selected_ids': [m['id'] for m in demand.get('materials') or []],
+        'sheet_w': SHEET_W,
+        'sheet_h': SHEET_H,
     })
 
 
@@ -212,6 +231,8 @@ async def sales_update(request: Request, demand_id: int):
             'catalog': db.list_materials(),
             'error': '需求不存在',
             'readonly': True,
+            'sheet_w': SHEET_W,
+            'sheet_h': SHEET_H,
         }, status_code=404)
     demand = rows[0]
     catalog = db.list_materials()
@@ -277,6 +298,8 @@ async def sales_update(request: Request, demand_id: int):
         'error': error,
         'readonly': False,
         'selected_ids': [int(x) for x in mat_raw if str(x).strip().isdigit()],
+        'sheet_w': SHEET_W,
+        'sheet_h': SHEET_H,
     }, status_code=400)
 
 
@@ -285,7 +308,7 @@ async def sales_delete(request: Request, demand_id: int):
     form = await request.form()
     work_date = (form.get('date') or '').strip() or db.today_str()
     try:
-        db.delete_demand(demand_id)
+        db.delete_demand(demand_id, allow_done=True)
     except ValueError as e:
         rows = db.get_demands_by_ids([demand_id])
         demand = rows[0] if rows else None
@@ -296,6 +319,8 @@ async def sales_delete(request: Request, demand_id: int):
             'error': str(e),
             'readonly': not demand or demand['status'] != 'pending',
             'selected_ids': [m['id'] for m in (demand or {}).get('materials') or []],
+            'sheet_w': SHEET_W,
+            'sheet_h': SHEET_H,
         }, status_code=400)
     return RedirectResponse(
         f'/sales/demands?date={work_date}&deleted={demand_id}',
