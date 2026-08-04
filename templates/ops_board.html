@@ -188,6 +188,17 @@
       return url + (url.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(PIN);
     }
 
+    function triggerDownload(url) {
+      // 本页触发下载，避免 location.href 整页跳走
+      const a = document.createElement('a');
+      a.href = url;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
     function showEpsDownloads(data) {
       const box = document.getElementById('epsList');
       const files = data.eps_files || [];
@@ -204,11 +215,10 @@
       }
       html += '</div>';
       box.innerHTML = html;
-      // 多文件优先提示打包；单文件直接打开下载
       if (files.length === 1) {
-        window.location.href = withPin(files[0].url);
+        triggerDownload(withPin(files[0].url));
       } else if (data.zip_url) {
-        window.location.href = withPin(data.zip_url);
+        triggerDownload(withPin(data.zip_url));
       }
     }
 
@@ -233,13 +243,32 @@
       if (!confirm(tip)) return;
       const msg = document.getElementById('msg');
       msg.textContent = '生成中…';
-      const data = await postJson('/ops/board/generate', collectBody());
+      const body = collectBody();
+      let data = await postJson('/ops/board/generate', body);
+      if (!data.ok && data.need_confirm_incomplete) {
+        if (data.sheets) {
+          sheets = data.sheets || [];
+          cur = Math.max(0, sheets.length - 1);
+          draw();
+        }
+        const ok = confirm(
+          `仍有 ${data.n_remaining} 件排不下。\n仍要生成 EPS 并把任务标为完成吗？\n（未排上的件不会出现在文件里）`
+        );
+        if (!ok) {
+          msg.innerHTML = `<span class="err">已取消：仍有 ${data.n_remaining} 件排不下</span>`;
+          return;
+        }
+        body.confirm_incomplete = true;
+        msg.textContent = '生成中…';
+        data = await postJson('/ops/board/generate', body);
+      }
       if (!data.ok) { msg.innerHTML = `<span class="err">${data.error}</span>`; return; }
       sheets = data.sheets || [];
       cur = Math.max(0, sheets.length - 1);
       draw();
       const n = (data.eps_files || data.eps_paths || []).length;
-      msg.innerHTML = `<span class="ok">已生成 ${n} 个 EPS，开始下载…</span>` +
+      const doneTip = data.marked_done === false ? '（未标完成）' : '';
+      msg.innerHTML = `<span class="ok">已生成 ${n} 个 EPS${doneTip}，开始下载…</span>` +
         (data.n_remaining ? `（仍剩 ${data.n_remaining} 件）` : '');
       showEpsDownloads(data);
     }
@@ -247,10 +276,27 @@
     function prevSheet() { if (!sheets.length) return; cur = (cur - 1 + sheets.length) % sheets.length; draw(); }
     function nextSheet() { if (!sheets.length) return; cur = (cur + 1) % sheets.length; draw(); }
 
-    function draw() {
+    function ensureCanvasSize() {
       const canvas = document.getElementById('preview');
+      const cssW = Math.max(280, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 800));
+      // 预览区用接近 5:3 的画布；板材在其内按真实宽高比居中缩放，不拉伸
+      const cssH = Math.max(200, Math.min(Math.round(cssW * 0.62), Math.floor(window.innerHeight * 0.65)));
+      const dpr = window.devicePixelRatio || 1;
+      const bw = Math.round(cssW * dpr);
+      const bh = Math.round(cssH * dpr);
+      if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
+      }
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      return { canvas, cssW, cssH, dpr };
+    }
+
+    function draw() {
+      const { canvas, cssW: w, cssH: h, dpr } = ensureCanvasSize();
       const ctx = canvas.getContext('2d');
-      const w = canvas.width, h = canvas.height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = '#fafafa';
       ctx.fillRect(0, 0, w, h);
@@ -312,6 +358,7 @@
         ctx.fillStyle = 'rgba(120,120,120,0.08)';
         ctx.fillRect(x, y, pw, ph);
         ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
         ctx.strokeRect(x, y, pw, ph);
         area += s.pw * s.ph - (s.piw || 0) * (s.pih || 0);
       }
@@ -320,6 +367,12 @@
         ? (100 * area / (sheet.mat_w * sheet.mat_h)).toFixed(1) : '0';
       util.textContent = `利用率约 ${utilPct}%`;
     }
+
+    let _resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(draw, 120);
+    });
     draw();
   </script>
 </body>

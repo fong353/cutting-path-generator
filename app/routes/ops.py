@@ -164,6 +164,8 @@ class BoardBody(BaseModel):
     fill_last: bool = True
     prefix: str = '卡纸路径'
     save_defaults: bool = True
+    # 仍有件排不下时，需前端二次确认后为 True 才允许生成并标完成
+    confirm_incomplete: bool = False
 
 
 def _require_same_material(jobs):
@@ -353,6 +355,14 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
         jobs, sheets, n_remaining = _run_pack(body)
         if not sheets:
             raise ValueError('没有生成任何板材，请检查材料尺寸')
+        if n_remaining > 0 and not body.confirm_incomplete:
+            return JSONResponse({
+                'ok': False,
+                'error': f'仍有 {n_remaining} 件排不下',
+                'need_confirm_incomplete': True,
+                'n_remaining': n_remaining,
+                'sheets': sheets_to_json(sheets),
+            }, status_code=409)
 
         pending = [j for j in jobs if j.get('job_status') == 'pending']
         all_keys = [j['key'] for j in jobs]
@@ -375,8 +385,10 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
             paths.append(str(fpath))
             eps_files.append(_eps_file_info(day, fname))
 
+        marked_done = False
         if pending:
             db.mark_jobs_done([j['key'] for j in pending])
+            marked_done = True
         db.save_job_run(
             all_keys,
             [m.model_dump() for m in body.materials],
@@ -399,6 +411,7 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
             'eps_files': eps_files,
             'zip_url': f'/ops/eps-zip?{zip_q}' if eps_files else '',
             'customers': sorted({j['customer_code'] for j in jobs}),
+            'marked_done': marked_done,
         }
     except ValueError as e:
         return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)

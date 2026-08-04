@@ -158,22 +158,34 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
 
 def update_demand(demand_id, work_date, customer_code, items, note='', submitter='',
                   material_ids=None):
-    """仅允许修改 pending 需求。"""
+    """仅允许修改 pending 需求。每种需求只保留一种材料；保留已有材料行的拼板状态。"""
     material_ids = list(dict.fromkeys(int(x) for x in (material_ids or [])))
+    if len(material_ids) != 1:
+        raise ValueError('每个需求只对应一种材料')
+    mid = material_ids[0]
     with get_db() as conn:
         row = conn.execute('SELECT status FROM demand WHERE id = ?', (demand_id,)).fetchone()
         if not row:
             raise ValueError('需求不存在')
         if row['status'] != 'pending':
             raise ValueError('已拼板完成的需求不能修改')
-        if material_ids:
-            placeholders = ','.join('?' * len(material_ids))
-            found = conn.execute(
-                f'SELECT id FROM material WHERE enabled = 1 AND id IN ({placeholders})',
-                material_ids,
-            ).fetchall()
-            if len(found) != len(material_ids):
-                raise ValueError('所选材料无效或已停用')
+        found = conn.execute(
+            'SELECT id FROM material WHERE enabled = 1 AND id = ?', (mid,),
+        ).fetchone()
+        if not found:
+            raise ValueError('所选材料无效或已停用')
+        old_rows = conn.execute(
+            'SELECT material_id, status FROM demand_material WHERE demand_id = ?',
+            (demand_id,),
+        ).fetchall()
+        old_status = {int(r['material_id']): r['status'] for r in old_rows}
+        for omid, st in old_status.items():
+            if st == 'done' and omid != mid:
+                raise ValueError('该需求另有材料已拼板完成，不能改成其他材料；请删除整单或保持原材料')
+        keep_status = old_status.get(mid, 'pending')
+        if keep_status == 'done':
+            raise ValueError('该材料已拼板完成，不能再改件明细')
+
         conn.execute(
             '''UPDATE demand SET work_date=?, customer_code=?, note=?, submitter=?
                WHERE id=?''',
@@ -191,12 +203,11 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
                    VALUES (?,?,?,?,?,?,?,?)''',
                 (demand_id, ow, oh, iw, ih, qty, hl, hb),
             )
-        for mid in material_ids:
-            conn.execute(
-                '''INSERT INTO demand_material (demand_id, material_id, status)
-                   VALUES (?,?, 'pending')''',
-                (demand_id, mid),
-            )
+        conn.execute(
+            '''INSERT INTO demand_material (demand_id, material_id, status)
+               VALUES (?,?,?)''',
+            (demand_id, mid, keep_status),
+        )
 
 
 def list_demands(work_date=None, status=None):

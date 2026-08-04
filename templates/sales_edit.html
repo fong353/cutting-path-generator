@@ -55,20 +55,19 @@
             <div class="mat-section-head">
               <div class="mat-section-title">
                 <label>材料种类 *</label>
-                <div class="mat-checks">
+                {% set cur_mid = selected_ids[0] if selected_ids else none %}
+                <select name="material_id" required {% if readonly %}disabled{% endif %}>
                   {% for m in catalog %}
-                  <label class="check">
-                    <input type="checkbox" name="material_id" value="{{ m.id }}"
-                      {% if m.id in selected_ids %}checked{% endif %}
-                      {% if readonly %}disabled{% endif %}>
-                    {{ m.name }}
-                  </label>
+                  <option value="{{ m.id }}" {% if m.id == cur_mid %}selected{% endif %}>{{ m.name }}</option>
                   {% endfor %}
-                </div>
+                </select>
               </div>
             </div>
+            {% if (demand.materials|length) > 1 %}
+            <p class="muted">历史多材料单：保存后只保留上面所选的一种材料（已拼完的材料不能删掉）。</p>
+            {% endif %}
             <h3>件明细</h3>
-            <p class="muted">带孔=画框。默认孔居中；点「中孔偏移」可改（二级，少用）。新提交按「一种材料一段」拆单；此处多选时件明细对所选材料共用。</p>
+            <p class="muted">带孔=画框。默认孔居中；点「中孔偏移」可改（二级，少用）。与提交页一致：一单一材料。</p>
             <table>
               <thead>
                 <tr><th>外框宽（cm）</th><th>外框高（cm）</th><th>内孔宽（cm）</th><th>内孔高（cm）</th><th>数量</th><th></th></tr>

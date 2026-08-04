@@ -241,7 +241,7 @@ async def sales_update(request: Request, demand_id: int):
     customer_code = (form.get('customer_code') or '').strip()
     note = (form.get('note') or '').strip()
     submitter = (form.get('submitter') or '').strip()
-    mat_raw = form.getlist('material_id')
+    mat_raw = form.get('material_id')
     error = None
     try:
         if demand['status'] != 'pending':
@@ -253,11 +253,11 @@ async def sales_update(request: Request, demand_id: int):
         if not customer_code:
             raise ValueError('请填写客户代码')
         try:
-            selected_ids = [int(x) for x in mat_raw if str(x).strip()]
+            selected_ids = [int(mat_raw)] if str(mat_raw or '').strip() else []
         except ValueError:
             raise ValueError('材料选择无效') from None
         if not selected_ids:
-            raise ValueError('请至少指定一种材料')
+            raise ValueError('请指定一种材料')
         items = []
         ow_list = form.getlist('ow')
         oh_list = form.getlist('oh')
@@ -291,13 +291,18 @@ async def sales_update(request: Request, demand_id: int):
 
     # 回显失败时的表单：重新读库 + 覆盖错误信息
     demand = db.get_demands_by_ids([demand_id])[0]
+    echo_ids = []
+    if str(mat_raw or '').strip().isdigit():
+        echo_ids = [int(mat_raw)]
+    if not echo_ids:
+        echo_ids = [m['id'] for m in demand.get('materials') or []]
     return templates.TemplateResponse('sales_edit.html', {
         'request': request,
         'demand': demand,
         'catalog': catalog,
         'error': error,
         'readonly': False,
-        'selected_ids': [int(x) for x in mat_raw if str(x).strip().isdigit()],
+        'selected_ids': echo_ids,
         'sheet_w': SHEET_W,
         'sheet_h': SHEET_H,
     }, status_code=400)
