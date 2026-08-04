@@ -504,7 +504,7 @@ class PrefixBar(tk.Frame):
 
 
 class App(tk.Tk):
-    CVS_W, CVS_H, CVS_PAD = 460, 380, 14
+    CVS_W, CVS_H, CVS_PAD = 360, 320, 14
 
     def __init__(self):
         super().__init__()
@@ -514,7 +514,31 @@ class App(tk.Tk):
         self._cur_sheet   = 0
         self._build()
         self._load_settings()
+        self.after(50, self._fit_window)
         self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _fit_window(self):
+        """按屏幕可用区域约束初始窗口，避免贴边裁切。"""
+        self.update_idletasks()
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        max_w, max_h = max(720, sw - 80), max(480, sh - 100)
+        left_w = self._lf.winfo_reqwidth()
+        want_w = left_w + self.CVS_W + 60
+        want_h = max(self._lf.winfo_reqheight() + 40, 560)
+        w = min(want_w, max_w)
+        h = min(want_h, max_h)
+        x = max(0, (sw - w) // 2)
+        y = max(24, (sh - h) // 3)
+        self.geometry(f'{w}x{h}+{x}+{y}')
+        self.minsize(min(820, max_w), min(480, max_h))
+        self.update_idletasks()
+        sash = min(left_w + 8, max(320, w - 300))
+        try:
+            self._pw.sashpos(0, sash)
+        except tk.TclError:
+            pass
+        # 布局稳定后再设一次，避免首次映射把 sash 冲掉
+        self.after(30, lambda: self._pw.sashpos(0, sash))
 
     def _build(self):
         self.rowconfigure(0, weight=1)
@@ -522,14 +546,16 @@ class App(tk.Tk):
 
         pw = ttk.PanedWindow(self, orient='horizontal')
         pw.grid(row=0, column=0, sticky='nsew', padx=14, pady=14)
+        self._pw = pw
 
-        # —— 左侧参数区（双栏） ——
+        # —— 左侧参数区（上下分区，比并排双栏更省宽度） ——
         lf = ttk.Frame(pw, padding=(0, 0, 8, 0))
         pw.add(lf, weight=1)
+        self._lf = lf
 
-        # 顶部设置行（跨双栏）
+        # 顶部设置行
         top = ttk.Frame(lf)
-        top.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+        top.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         ttk.Label(top, text="文件前缀:").grid(row=0, column=0, sticky='e')
         self.prefix_bar = PrefixBar(top, defaults=("卡纸路径", "相框", "备用"))
         self.prefix_bar.grid(row=0, column=1, padx=(4, 20))
@@ -539,13 +565,13 @@ class App(tk.Tk):
         self.e_gap.grid(row=0, column=3, padx=(4, 0))
         ttk.Label(top, text="（0=共刀）", foreground='gray').grid(row=0, column=4, sticky='w', padx=(4, 0))
 
-        # 左栏：材料 + 必要件
+        # 材料 + 必要件
         col0 = ttk.Frame(lf)
-        col0.grid(row=1, column=0, sticky='n', padx=(0, 16))
+        col0.grid(row=1, column=0, sticky='ew')
 
         ttk.Label(col0, text="材料（按优先级从上到下）",
                   font=('', 9, 'bold')).grid(row=0, column=0, sticky='w')
-        self.mat_tbl = RowTable(col0, MAT_HDR, MAT_WIDS, init_rows=2)
+        self.mat_tbl = RowTable(col0, MAT_HDR, MAT_WIDS, init_rows=2, max_height=100)
         self.mat_tbl.grid(row=1, column=0, sticky='ew', pady=(2, 10))
 
         # 必要件（弹窗编辑）
@@ -560,9 +586,9 @@ class App(tk.Tk):
         ttk.Button(itm_hdr, text="清除全部", command=self._clear_items).grid(
             row=0, column=3, padx=(6, 0))
 
-        # 右栏：尾料利用
+        # 尾料利用（材料下方）
         col1 = ttk.Frame(lf)
-        col1.grid(row=1, column=1, sticky='n')
+        col1.grid(row=2, column=0, sticky='ew', pady=(8, 0))
 
         fill_hdr = ttk.Frame(col1)
         fill_hdr.grid(row=0, column=0, sticky='ew')
@@ -573,23 +599,24 @@ class App(tk.Tk):
         self.var_fill_last = tk.BooleanVar(value=True)
         ttk.Checkbutton(fill_hdr, text="最后一张填充",
                         variable=self.var_fill_last).grid(row=0, column=2, padx=(16, 0))
-        self.fill_tbl = RowTable(col1, FILL_HDR, FILL_WIDS, init_rows=0, has_enable=True)
+        self.fill_tbl = RowTable(col1, FILL_HDR, FILL_WIDS, init_rows=0,
+                                 has_enable=True, max_height=140)
         self.fill_tbl.add_row(["42", "29.7", "", "", "1"])
         self.fill_tbl.add_row(["29.7", "21", "", "", "1"])
         self.fill_tbl.add_row(["21", "14.8", "", "", "1"])
         self.fill_tbl.grid(row=1, column=0, sticky='ew', pady=(2, 0))
 
-        # 按钮行 + 状态（跨双栏）
+        # 按钮行 + 状态
         btn_row = ttk.Frame(lf)
-        btn_row.grid(row=2, column=0, columnspan=2, pady=12, sticky='w')
+        btn_row.grid(row=3, column=0, pady=12, sticky='w')
         ttk.Button(btn_row, text="  预  览  ", command=self._preview_only).grid(
             row=0, column=0, ipadx=10, ipady=6)
         ttk.Button(btn_row, text="  生 成 EPS  ", command=self._run).grid(
             row=0, column=1, padx=(10, 0), ipadx=10, ipady=6)
 
         self.status = ttk.Label(lf, text="填好参数后点生成",
-                                foreground='gray', wraplength=500, justify='left')
-        self.status.grid(row=3, column=0, columnspan=2, sticky='w')
+                                foreground='gray', wraplength=480, justify='left')
+        self.status.grid(row=4, column=0, sticky='w')
 
         # —— 右侧预览区 ——
         pf = ttk.Frame(pw, padding=(8, 0, 0, 0))

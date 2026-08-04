@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>操作员 · 混拼</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap" style="max-width:1280px">
+    <div class="topnav">
+      <span class="brand">操作员 · 混拼工作台</span>
+      <a href="/ops{% if pin %}?pin={{ pin }}{% endif %}">返回待拼池</a>
+      <a href="/">首页</a>
+    </div>
+
+    {% if not jobs %}
+    <div class="card"><div class="err">未选择有效任务</div></div>
+    {% else %}
+
+    <div class="card">
+      <h2>已选任务（客户 × 材料）</h2>
+      {% for j in jobs %}
+        <span class="tag">{{ j.customer_code }}</span>
+        <span class="tag">{{ j.material_name }}</span>
+        <span class="muted">#{{ j.demand_id }} {{ j.job_status }}</span>
+        {% for it in j.item_rows %}
+          <span class="muted">{{ it.ow }}×{{ it.oh }}×{{ it.qty }}</span>
+        {% endfor %}
+        <br>
+      {% endfor %}
+    </div>
+
+    <div class="board-layout">
+      <div>
+        <div class="card">
+          <h2>材料（种类可继承任务；宽高手填）</h2>
+          <table>
+            <thead>
+              <tr><th>种类</th><th>宽</th><th>高</th><th>张数</th><th></th></tr>
+            </thead>
+            <tbody id="matBody"></tbody>
+          </table>
+          <button type="button" class="btn secondary small" onclick="addMat()">＋ 材料行</button>
+        </div>
+        <div class="card">
+          <h2>参数 / 尾料</h2>
+          <div class="row cols-2">
+            <div>
+              <label>间距(cm)</label>
+              <input id="gap" value="{{ defaults.gap }}">
+            </div>
+            <div>
+              <label>文件前缀</label>
+              <input id="prefix" value="{{ defaults.prefix }}">
+            </div>
+          </div>
+          <label><input type="checkbox" id="fillLast" {% if defaults.fill_last %}checked{% endif %}> 最后一张填充</label>
+          <h2 style="margin-top:16px">尾料</h2>
+          <table>
+            <thead><tr><th>启用</th><th>外宽</th><th>外高</th><th>内宽</th><th>内高</th><th></th></tr></thead>
+            <tbody id="fillBody"></tbody>
+          </table>
+          <button type="button" class="btn secondary small" onclick="addFill()">＋ 尾料行</button>
+          <div class="actions">
+            <button type="button" class="btn" onclick="doPreview()">预览</button>
+            <button type="button" class="btn green" onclick="doGenerate()">生成 EPS</button>
+          </div>
+          <div id="msg" class="muted" style="margin-top:10px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>拼板预览（矩形内为客户代码）</h2>
+        <canvas id="preview" width="800" height="480"></canvas>
+        <div class="nav-sheets">
+          <button type="button" class="btn secondary small" onclick="prevSheet()">◀</button>
+          <span id="sheetLabel">–</span>
+          <button type="button" class="btn secondary small" onclick="nextSheet()">▶</button>
+          <span id="utilLabel" class="muted"></span>
+        </div>
+        <pre id="epsList" class="muted" style="white-space:pre-wrap;margin-top:12px"></pre>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    const JOB_KEYS = {{ job_keys | tojson }};
+    const CATALOG = {{ catalog | tojson }};
+    const DEFAULTS = {{ defaults | tojson }};
+    const SUGGESTED_MATS = {{ suggested_mats | tojson }};
+    const PIN = {{ pin | tojson }};
+    let sheets = [];
+    let cur = 0;
+
+    function matOptions(selectedId) {
+      let html = '<option value="">（手填/不选）</option>';
+      for (const m of CATALOG) {
+        const sel = String(m.id) === String(selectedId) ? 'selected' : '';
+        html += `<option value="${m.id}" ${sel}>${m.name}</option>`;
+      }
+      return html;
+    }
+
+    function addMat(row) {
+      row = row || { material_id: null, name: '', width: '', height: '', sheets: '' };
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><select class="mat-id" onchange="onMatPick(this)">${matOptions(row.material_id)}</select></td>
+        <td><input class="mat-w" value="${row.width || ''}" inputmode="decimal"></td>
+        <td><input class="mat-h" value="${row.height || ''}" inputmode="decimal"></td>
+        <td><input class="mat-s" value="${row.sheets || ''}" placeholder="不限"></td>
+        <td><button type="button" class="btn secondary small" onclick="this.closest('tr').remove()">删</button></td>`;
+      document.getElementById('matBody').appendChild(tr);
+    }
+    function onMatPick(sel) {
+      const opt = sel.options[sel.selectedIndex];
+      sel.closest('tr').dataset.name = opt.text || '';
+    }
+    function addFill(row) {
+      row = row || { fw: '', fh: '', fiw: '', fih: '', enabled: true };
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="f-en" ${row.enabled !== false ? 'checked' : ''}></td>
+        <td><input class="f-fw" value="${row.fw || ''}"></td>
+        <td><input class="f-fh" value="${row.fh || ''}"></td>
+        <td><input class="f-fiw" value="${row.fiw || ''}"></td>
+        <td><input class="f-fih" value="${row.fih || ''}"></td>
+        <td><button type="button" class="btn secondary small" onclick="this.closest('tr').remove()">删</button></td>`;
+      document.getElementById('fillBody').appendChild(tr);
+    }
+
+    const initMats = (SUGGESTED_MATS && SUGGESTED_MATS.length)
+      ? SUGGESTED_MATS
+      : (DEFAULTS.materials || [{}]);
+    initMats.forEach(addMat);
+    (DEFAULTS.fill || []).forEach(addFill);
+    if (!(DEFAULTS.fill || []).length) addFill();
+
+    function collectBody() {
+      const materials = [...document.querySelectorAll('#matBody tr')].map(tr => {
+        const sel = tr.querySelector('.mat-id');
+        const mid = sel.value ? parseInt(sel.value, 10) : null;
+        const name = mid ? sel.options[sel.selectedIndex].text : '';
+        return {
+          material_id: mid,
+          name,
+          width: tr.querySelector('.mat-w').value,
+          height: tr.querySelector('.mat-h').value,
+          sheets: tr.querySelector('.mat-s').value,
+        };
+      });
+      const fill = [...document.querySelectorAll('#fillBody tr')].map(tr => ({
+        enabled: tr.querySelector('.f-en').checked,
+        fw: tr.querySelector('.f-fw').value,
+        fh: tr.querySelector('.f-fh').value,
+        fiw: tr.querySelector('.f-fiw').value,
+        fih: tr.querySelector('.f-fih').value,
+      }));
+      return {
+        jobs: JOB_KEYS,
+        materials,
+        fill,
+        gap: document.getElementById('gap').value,
+        fill_last: document.getElementById('fillLast').checked,
+        prefix: document.getElementById('prefix').value,
+        save_defaults: true,
+      };
+    }
+
+    async function postJson(url, body) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (PIN) headers['X-Ops-Pin'] = PIN;
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      return res.json();
+    }
+
+    async function doPreview() {
+      const msg = document.getElementById('msg');
+      msg.textContent = '计算中…';
+      const data = await postJson('/ops/board/preview', collectBody());
+      if (!data.ok) { msg.innerHTML = `<span class="err">${data.error}</span>`; return; }
+      sheets = data.sheets || [];
+      cur = Math.max(0, sheets.length - 1);
+      draw();
+      msg.textContent = sheets.length
+        ? `共 ${sheets.length} 张` + (data.n_remaining ? `，仍剩 ${data.n_remaining} 件排不下` : '')
+        : '无板材';
+      document.getElementById('epsList').textContent = '';
+    }
+
+    async function doGenerate() {
+      if (!confirm('确认生成 EPS 并将所选「客户×材料」任务标为完成？')) return;
+      const msg = document.getElementById('msg');
+      msg.textContent = '生成中…';
+      const data = await postJson('/ops/board/generate', collectBody());
+      if (!data.ok) { msg.innerHTML = `<span class="err">${data.error}</span>`; return; }
+      sheets = data.sheets || [];
+      cur = Math.max(0, sheets.length - 1);
+      draw();
+      msg.innerHTML = `<span class="ok">已生成 ${data.eps_paths.length} 个 EPS</span>` +
+        (data.n_remaining ? `（仍剩 ${data.n_remaining} 件）` : '');
+      document.getElementById('epsList').textContent = (data.eps_paths || []).join('\n');
+    }
+
+    function prevSheet() { if (!sheets.length) return; cur = (cur - 1 + sheets.length) % sheets.length; draw(); }
+    function nextSheet() { if (!sheets.length) return; cur = (cur + 1) % sheets.length; draw(); }
+
+    function draw() {
+      const canvas = document.getElementById('preview');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#fafafa';
+      ctx.fillRect(0, 0, w, h);
+      const label = document.getElementById('sheetLabel');
+      const util = document.getElementById('utilLabel');
+      if (!sheets.length) {
+        ctx.fillStyle = '#aaa';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('预览后显示拼板（矩形内为客户代码）', w / 2, h / 2);
+        label.textContent = '–';
+        util.textContent = '';
+        return;
+      }
+      const sheet = sheets[cur];
+      const pad = 16;
+      const scale = Math.min((w - 2 * pad) / sheet.mat_w, (h - 2 * pad) / sheet.mat_h);
+      const W = sheet.mat_w * scale, H = sheet.mat_h * scale;
+      const ox = pad + (w - 2 * pad - W) / 2;
+      const oy = pad + (h - 2 * pad - H) / 2;
+
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(ox, oy, W, H);
+      ctx.strokeRect(ox, oy, W, H);
+
+      let area = 0;
+      for (const p of sheet.placed) {
+        const x = ox + p.x * scale, y = oy + p.y * scale;
+        const pw = p.pw * scale, ph = p.ph * scale;
+        ctx.fillStyle = 'rgba(30,120,220,0.12)';
+        ctx.fillRect(x, y, pw, ph);
+        ctx.strokeStyle = '#c00';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, pw, ph);
+        if (p.piw > 0) {
+          const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
+          const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
+          const ix = x + hl * scale;
+          const iy = y + (p.ph - hb - p.pih) * scale;
+          ctx.strokeStyle = '#06c';
+          ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
+        }
+        const code = p.customer_code || '';
+        if (code) {
+          const fs = Math.max(9, Math.min(22, Math.min(pw, ph) * 0.28));
+          ctx.fillStyle = '#111';
+          ctx.font = `bold ${fs}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(code, x + pw / 2, y + ph / 2);
+        }
+        area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
+      }
+      for (const s of sheet.secondary || []) {
+        const x = ox + s.x * scale, y = oy + s.y * scale;
+        const pw = s.pw * scale, ph = s.ph * scale;
+        ctx.fillStyle = 'rgba(120,120,120,0.08)';
+        ctx.fillRect(x, y, pw, ph);
+        ctx.strokeStyle = '#888';
+        ctx.strokeRect(x, y, pw, ph);
+        area += s.pw * s.ph - (s.piw || 0) * (s.pih || 0);
+      }
+      label.textContent = `${cur + 1} / ${sheets.length}　${sheet.mat_name || ''} ${sheet.mat_w}×${sheet.mat_h} cm`;
+      const utilPct = sheet.mat_w * sheet.mat_h > 0
+        ? (100 * area / (sheet.mat_w * sheet.mat_h)).toFixed(1) : '0';
+      util.textContent = `利用率约 ${utilPct}%`;
+    }
+    draw();
+  </script>
+</body>
+</html>
