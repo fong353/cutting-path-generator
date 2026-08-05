@@ -21,7 +21,8 @@
       <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--line)">
         <p>
           <a href="/sales/demands/{{ demand.id }}"><strong>#{{ demand.id }}</strong></a>
-          客户：<span class="tag">{{ demand.customer_code }}</span>
+          客户代码：<span class="tag">{{ demand.customer_code }}</span>
+          {% if demand.customer_name %}客户名：{{ demand.customer_name }}{% endif %}
           日期：{{ demand.work_date }}
         </p>
         <p>材料：

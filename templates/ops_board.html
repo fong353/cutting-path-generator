@@ -27,7 +27,7 @@
     <div class="card">
       <h2>{% if review %}检查任务{% else %}已选任务{% endif %}（客户 × 材料）</h2>
       {% for j in jobs %}
-        <span class="tag">{{ j.customer_code }}</span>
+        <span class="tag">{{ j.customer_code }}</span>{% if j.customer_name %}<span class="muted">{{ j.customer_name }}</span>{% endif %}
         <span class="tag">{{ j.material_name }}</span>
         <span class="muted">#{{ j.demand_id }} {% if j.job_status == 'pending' %}待拼板{% elif j.job_status == 'done' %}已完成{% else %}{{ j.job_status }}{% endif %}</span>
         {% for it in j.item_rows %}

@@ -28,11 +28,11 @@ def _form_ctx(**extra):
 def _parse_multi_customer_form(form):
     """
     解析一次提交的多客户表单。
-    c_code / c_note：按客户块顺序
+    c_code / c_name / c_note：按客户块顺序
     m_block / m_mat / m_msec：材料段（属于某客户块，各自一种材料）
     i_msec / ow / oh / iw / ih / qty：件行，挂到材料段
     返回 (work_date, submitter, blocks)
-    blocks: [{customer_code, note, material_ids, items}, ...]
+    blocks: [{customer_code, customer_name, note, material_ids, items}, ...]
     每种材料一段 → 一条 demand（material_ids 仅一个）。
     """
     work_date = (form.get('work_date') or '').strip()
@@ -43,6 +43,7 @@ def _parse_multi_customer_form(form):
         raise ValueError('请填写提交人')
 
     codes = form.getlist('c_code')
+    names = form.getlist('c_name')
     notes = form.getlist('c_note')
     if not codes:
         raise ValueError('请至少添加一个客户')
@@ -106,6 +107,7 @@ def _parse_multi_customer_form(form):
     blocks = []
     for bi, code in enumerate(codes):
         code = (code or '').strip()
+        name = ((names[bi] if bi < len(names) else '') or '').strip()
         note = ((notes[bi] if bi < len(notes) else '') or '').strip()
         cust_secs = [s for s in sections if s['bi'] == bi]
         has_items = any(items_by_msec[s['msec']] for s in cust_secs)
@@ -121,6 +123,7 @@ def _parse_multi_customer_form(form):
                 raise ValueError(f'客户「{code}」：每种材料请至少填写一件')
             blocks.append({
                 'customer_code': code,
+                'customer_name': name,
                 'note': note,
                 'material_ids': [s['mid']],
                 'items': items,
@@ -151,6 +154,7 @@ async def sales_submit(request: Request):
             did = db.create_demand(
                 work_date, b['customer_code'], b['items'],
                 b['note'], submitter, b['material_ids'],
+                customer_name=b.get('customer_name') or '',
             )
             created_ids.append(did)
     except ValueError as e:
@@ -189,7 +193,7 @@ def sales_list(request: Request, date: str = '', customer: str = ''):
     customer_q = (customer or '').strip()
     demands = db.list_demands(
         work_date=work_date,
-        customer_code=customer_q or None,
+        customer_q=customer_q or None,
     )
     return templates.TemplateResponse('sales_list.html', {
         'request': request,
@@ -244,6 +248,7 @@ async def sales_update(request: Request, demand_id: int):
 
     work_date = (form.get('work_date') or '').strip()
     customer_code = (form.get('customer_code') or '').strip()
+    customer_name = (form.get('customer_name') or '').strip()
     note = (form.get('note') or '').strip()
     submitter = (form.get('submitter') or '').strip()
     mat_raw = form.get('material_id')
@@ -288,14 +293,20 @@ async def sales_update(request: Request, demand_id: int):
         if not items:
             raise ValueError('请至少填写一件')
         db.update_demand(
-            demand_id, work_date, customer_code, items, note, submitter, selected_ids
+            demand_id, work_date, customer_code, items, note, submitter, selected_ids,
+            customer_name=customer_name,
         )
         return RedirectResponse(f'/sales/demands/{demand_id}?saved=1', status_code=303)
     except ValueError as e:
         error = str(e)
 
     # 回显失败时的表单：重新读库 + 覆盖错误信息
-    demand = db.get_demands_by_ids([demand_id])[0]
+    demand = dict(db.get_demands_by_ids([demand_id])[0])
+    demand['customer_code'] = customer_code
+    demand['customer_name'] = customer_name
+    demand['note'] = note
+    demand['submitter'] = submitter
+    demand['work_date'] = work_date or demand.get('work_date')
     echo_ids = []
     if str(mat_raw or '').strip().isdigit():
         echo_ids = [int(mat_raw)]

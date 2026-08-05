@@ -43,7 +43,11 @@
             <input name="submitter" value="{{ demand.submitter or '' }}" {% if readonly %}disabled{% endif %} required autocomplete="name">
           </div>
         </div>
-        <div class="row">
+        <div class="row cols-2">
+          <div>
+            <label>客户名</label>
+            <input name="customer_name" value="{{ demand.customer_name or '' }}" {% if readonly %}disabled{% endif %} placeholder="可选">
+          </div>
           <div>
             <label>备注</label>
             <input name="note" value="{{ demand.note or '' }}" {% if readonly %}disabled{% endif %}>
@@ -106,14 +110,14 @@
       {% if not readonly %}
       <form method="post" action="/sales/demands/{{ demand.id }}/delete"
             style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)"
-            onsubmit="return confirm('确认删除需求 #{{ demand.id }}（客户 {{ demand.customer_code }}）？此操作不可恢复。');">
+            onsubmit="return confirm('确认删除需求 #{{ demand.id }}（客户代码 {{ demand.customer_code }}）？此操作不可恢复。');">
         <input type="hidden" name="date" value="{{ demand.work_date }}">
         <button type="submit" class="btn danger">删除此需求</button>
       </form>
       {% else %}
       <form method="post" action="/sales/demands/{{ demand.id }}/delete"
             style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)"
-            onsubmit="return confirm('该需求已完成。确认仍要删除 #{{ demand.id }}（客户 {{ demand.customer_code }}）？此操作不可恢复。');">
+            onsubmit="return confirm('该需求已完成。确认仍要删除 #{{ demand.id }}（客户代码 {{ demand.customer_code }}）？此操作不可恢复。');">
         <input type="hidden" name="date" value="{{ demand.work_date }}">
         <button type="submit" class="btn danger">删除此需求</button>
       </form>

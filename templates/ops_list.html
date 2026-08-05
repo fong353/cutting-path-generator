@@ -53,7 +53,7 @@
               {% for j in g.jobs %}
                 <tr>
                   <td class="col-id">#{{ j.demand_id }}</td>
-                  <td><span class="tag">{{ j.customer_code }}</span></td>
+                  <td><span class="tag">{{ j.customer_code }}</span>{% if j.customer_name %} {{ j.customer_name }}{% endif %}</td>
                   <td class="cell-items">
                     {% for it in j.item_rows %}
                       {{ it.ow }}×{{ it.oh }}{% if it.iw %}(孔{{ it.iw }}×{{ it.ih }}){% endif %}×{{ it.qty }}{% if not loop.last %}；{% endif %}
@@ -88,7 +88,7 @@
           {% for j in done_jobs %}
             <tr class="row-done">
               <td class="col-id">#{{ j.demand_id }}</td>
-              <td><span class="tag">{{ j.customer_code }}</span></td>
+              <td><span class="tag">{{ j.customer_code }}</span>{% if j.customer_name %} {{ j.customer_name }}{% endif %}</td>
               <td><span class="tag">{{ j.material_name }}</span></td>
               <td class="cell-items">
                 {% for it in j.item_rows %}

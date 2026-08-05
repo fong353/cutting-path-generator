@@ -101,7 +101,7 @@ if ($txt -notmatch 'cols-3') {
   throw 'extract verify failed: sales_list.html missing cols-3'
 }
 $py = Get-Content -Raw -Encoding UTF8 (Join-Path $APP 'app\routes\sales.py')
-if ($py -notmatch 'customer_code=customer_q') {
+if ($py -notmatch 'customer_q=customer_q') {
   throw 'extract verify failed: sales.py missing customer filter'
 }
 Write-Host 'extract_ok'

@@ -131,10 +131,14 @@
           <h2>客户 #${bi + 1}</h2>
           <button type="button" class="btn secondary small" onclick="removeCustomer(this)">移除客户</button>
         </div>
-        <div class="row cols-2">
+        <div class="row cols-3">
           <div>
             <label>客户代码 *</label>
             <input name="c_code" required placeholder="如 A012">
+          </div>
+          <div>
+            <label>客户名</label>
+            <input name="c_name" placeholder="可选">
           </div>
           <div>
             <label>备注</label>

@@ -42,6 +42,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             work_date TEXT NOT NULL,
             customer_code TEXT NOT NULL,
+            customer_name TEXT NOT NULL DEFAULT '',
             note TEXT NOT NULL DEFAULT '',
             submitter TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'pending',
@@ -78,6 +79,7 @@ def init_db():
                     (name, 1, i + 1),
                 )
         _ensure_item_offset_columns(conn)
+        _ensure_demand_columns(conn)
 
 
 def _ensure_item_offset_columns(conn):
@@ -90,6 +92,14 @@ def _ensure_item_offset_columns(conn):
     if 'status' not in dm_cols:
         conn.execute(
             "ALTER TABLE demand_material ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+        )
+
+
+def _ensure_demand_columns(conn):
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(demand)')}
+    if 'customer_name' not in cols:
+        conn.execute(
+            "ALTER TABLE demand ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''"
         )
 
 
@@ -118,7 +128,8 @@ def _attach_demand_extras(conn, d):
     return d
 
 
-def create_demand(work_date, customer_code, items, note='', submitter='', material_ids=None):
+def create_demand(work_date, customer_code, items, note='', submitter='', material_ids=None,
+                  customer_name=''):
     """items: (ow, oh, iw, ih, qty) 或 (ow, oh, iw, ih, qty, hole_left, hole_bottom)。"""
     now = datetime.now().isoformat(timespec='seconds')
     material_ids = list(dict.fromkeys(int(x) for x in (material_ids or [])))
@@ -132,9 +143,17 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
             if len(rows) != len(material_ids):
                 raise ValueError('所选材料无效或已停用')
         cur = conn.execute(
-            '''INSERT INTO demand (work_date, customer_code, note, submitter, status, created_at)
-               VALUES (?,?,?,?, 'pending', ?)''',
-            (work_date, customer_code.strip(), note or '', submitter or '', now),
+            '''INSERT INTO demand
+               (work_date, customer_code, customer_name, note, submitter, status, created_at)
+               VALUES (?,?,?,?,?, 'pending', ?)''',
+            (
+                work_date,
+                customer_code.strip(),
+                (customer_name or '').strip(),
+                note or '',
+                submitter or '',
+                now,
+            ),
         )
         did = cur.lastrowid
         for it in items:
@@ -157,7 +176,7 @@ def create_demand(work_date, customer_code, items, note='', submitter='', materi
 
 
 def update_demand(demand_id, work_date, customer_code, items, note='', submitter='',
-                  material_ids=None):
+                  material_ids=None, customer_name=''):
     """仅允许修改 pending 需求。每种需求只保留一种材料；保留已有材料行的拼板状态。"""
     material_ids = list(dict.fromkeys(int(x) for x in (material_ids or [])))
     if len(material_ids) != 1:
@@ -187,9 +206,16 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
             raise ValueError('该材料已拼板完成，不能再改件明细')
 
         conn.execute(
-            '''UPDATE demand SET work_date=?, customer_code=?, note=?, submitter=?
+            '''UPDATE demand SET work_date=?, customer_code=?, customer_name=?, note=?, submitter=?
                WHERE id=?''',
-            (work_date, customer_code.strip(), note or '', submitter or '', demand_id),
+            (
+                work_date,
+                customer_code.strip(),
+                (customer_name or '').strip(),
+                note or '',
+                submitter or '',
+                demand_id,
+            ),
         )
         conn.execute('DELETE FROM demand_item WHERE demand_id = ?', (demand_id,))
         conn.execute('DELETE FROM demand_material WHERE demand_id = ?', (demand_id,))
@@ -210,7 +236,8 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
         )
 
 
-def list_demands(work_date=None, status=None, customer_code=None):
+def list_demands(work_date=None, status=None, customer_code=None, customer_q=None):
+    """customer_q：同时模糊匹配客户代码与客户名；customer_code 仅匹配代码（兼容旧调用）。"""
     with get_db() as conn:
         clauses, args = [], []
         if work_date:
@@ -219,9 +246,11 @@ def list_demands(work_date=None, status=None, customer_code=None):
         if status:
             clauses.append('status = ?')
             args.append(status)
-        if customer_code:
-            clauses.append('customer_code LIKE ?')
-            args.append(f'%{customer_code}%')
+        q = (customer_q if customer_q is not None else customer_code) or ''
+        q = str(q).strip()
+        if q:
+            clauses.append('(customer_code LIKE ? OR customer_name LIKE ?)')
+            args.extend([f'%{q}%', f'%{q}%'])
         where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
         rows = conn.execute(
             f'SELECT * FROM demand{where} ORDER BY work_date DESC, id DESC', args
@@ -256,7 +285,7 @@ def list_jobs(work_date=None, status=None):
             args.append(work_date)
         where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
         rows = conn.execute(
-            f'''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.note,
+            f'''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.customer_name, d.note,
                        d.submitter, d.created_at, d.status AS demand_status,
                        dm.status AS job_status,
                        m.id AS material_id, m.name AS material_name
@@ -301,7 +330,7 @@ def get_jobs_by_keys(keys):
     with get_db() as conn:
         for did, mid in parsed:
             row = conn.execute(
-                '''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.note,
+                '''SELECT d.id AS demand_id, d.work_date, d.customer_code, d.customer_name, d.note,
                           d.submitter, d.created_at, d.status AS demand_status,
                           dm.status AS job_status,
                           m.id AS material_id, m.name AS material_name
