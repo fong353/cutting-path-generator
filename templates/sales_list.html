@@ -15,19 +15,23 @@
     </div>
     <div class="card">
       <h1>按日查看</h1>
-      <p class="muted">点「查看/修改」进入二级页。待拼板可改；<strong>已完成也可删除</strong>（不可改内容）。</p>
+      <p class="muted">可按日期、客户代码筛选。点「查看/修改」进入二级页。待拼板可改；<strong>已完成也可删除</strong>（不可改内容）。</p>
       {% if request.query_params.get('deleted') %}
       <div class="ok">已删除需求 #{{ request.query_params.get('deleted') }}</div>
       {% endif %}
-      <form method="get" class="row cols-2" style="align-items:end">
+      <form method="get" class="row cols-3" style="align-items:end">
         <div>
           <label>业务日期</label>
           <input type="date" name="date" value="{{ work_date }}">
         </div>
+        <div>
+          <label>客户代码</label>
+          <input type="text" name="customer" value="{{ customer }}" placeholder="支持模糊匹配" autocomplete="off">
+        </div>
         <div><button class="btn" type="submit">查询</button></div>
       </form>
       {% if not demands %}
-      <p class="muted">该日暂无需求</p>
+      <p class="muted">{% if customer %}未找到客户「{{ customer }}」在该日的需求{% else %}该日暂无需求{% endif %}</p>
       {% else %}
       <table>
         <thead>
@@ -50,6 +54,7 @@
               <form method="post" action="/sales/demands/{{ d.id }}/delete" style="display:inline"
                     onsubmit="return confirm('确认删除需求 #{{ d.id }}？此操作不可恢复。');">
                 <input type="hidden" name="date" value="{{ work_date }}">
+                <input type="hidden" name="customer" value="{{ customer }}">
                 <button type="submit" class="btn danger small">删除</button>
               </form>
             </td>

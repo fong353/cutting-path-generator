@@ -184,12 +184,17 @@ def sales_done(request: Request, ids: str = '', id: int = 0):
 
 
 @router.get('/demands', response_class=HTMLResponse)
-def sales_list(request: Request, date: str = ''):
+def sales_list(request: Request, date: str = '', customer: str = ''):
     work_date = date or db.today_str()
-    demands = db.list_demands(work_date=work_date)
+    customer_q = (customer or '').strip()
+    demands = db.list_demands(
+        work_date=work_date,
+        customer_code=customer_q or None,
+    )
     return templates.TemplateResponse('sales_list.html', {
         'request': request,
         'work_date': work_date,
+        'customer': customer_q,
         'demands': demands,
     })
 
@@ -312,6 +317,7 @@ async def sales_update(request: Request, demand_id: int):
 async def sales_delete(request: Request, demand_id: int):
     form = await request.form()
     work_date = (form.get('date') or '').strip() or db.today_str()
+    customer_q = (form.get('customer') or '').strip()
     try:
         db.delete_demand(demand_id, allow_done=True)
     except ValueError as e:
@@ -327,7 +333,10 @@ async def sales_delete(request: Request, demand_id: int):
             'sheet_w': SHEET_W,
             'sheet_h': SHEET_H,
         }, status_code=400)
+    q = {'date': work_date, 'deleted': demand_id}
+    if customer_q:
+        q['customer'] = customer_q
     return RedirectResponse(
-        f'/sales/demands?date={work_date}&deleted={demand_id}',
+        f'/sales/demands?{urlencode(q)}',
         status_code=303,
     )

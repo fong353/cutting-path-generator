@@ -210,7 +210,7 @@ def update_demand(demand_id, work_date, customer_code, items, note='', submitter
         )
 
 
-def list_demands(work_date=None, status=None):
+def list_demands(work_date=None, status=None, customer_code=None):
     with get_db() as conn:
         clauses, args = [], []
         if work_date:
@@ -219,6 +219,9 @@ def list_demands(work_date=None, status=None):
         if status:
             clauses.append('status = ?')
             args.append(status)
+        if customer_code:
+            clauses.append('customer_code LIKE ?')
+            args.append(f'%{customer_code}%')
         where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
         rows = conn.execute(
             f'SELECT * FROM demand{where} ORDER BY work_date DESC, id DESC', args
