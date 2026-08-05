@@ -379,7 +379,7 @@ def ops_generate(body: BoardBody, _: None = Depends(_check_pin)):
             mat_name = sheet[4] if len(sheet) > 4 else f'{mat_w:g}x{mat_h:g}'
             uid = uuid.uuid4().hex[:8]
             safe_mat = _safe_filename(mat_name)
-            fname = f'{prefix}-板{i}-{safe_mat}-{uid}.eps'
+            fname = f'{prefix}-{day}-板{i}-{safe_mat}-{uid}.eps'
             fpath = out_dir / fname
             make_eps(placed, str(fpath), mat_w, mat_h, secondary)
             paths.append(str(fpath))
