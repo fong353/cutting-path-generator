@@ -14,33 +14,34 @@
       <a href="/">首页</a>
     </div>
     <div class="card">
-      <h1>按日查看</h1>
-      <p class="muted">可按日期、客户代码或客户名筛选。点「查看/修改」进入二级页。待拼板可改；<strong>已完成也可删除</strong>（不可改内容）。</p>
+      <h1>检查 / 修改</h1>
+      <p class="muted">按日浏览；填写客户代码/客户名时<strong>默认跨日搜索</strong>（忽略日期）。点「查看/修改」进入二级页。待拼板可改；<strong>已完成也可删除</strong>（不可改内容）。</p>
       {% if request.query_params.get('deleted') %}
       <div class="ok">已删除需求 #{{ request.query_params.get('deleted') }}</div>
       {% endif %}
       <form method="get" class="row cols-3" style="align-items:end">
         <div>
-          <label>业务日期</label>
+          <label>业务日期{% if not filter_by_date %} <span class="muted">（已忽略）</span>{% endif %}</label>
           <input type="date" name="date" value="{{ work_date }}">
         </div>
         <div>
           <label>客户代码 / 客户名</label>
-          <input type="text" name="customer" value="{{ customer }}" placeholder="支持模糊匹配" autocomplete="off">
+          <input type="text" name="customer" value="{{ customer }}" placeholder="有内容则跨日搜索" autocomplete="off">
         </div>
         <div><button class="btn" type="submit">查询</button></div>
       </form>
       {% if not demands %}
-      <p class="muted">{% if customer %}未找到「{{ customer }}」在该日的需求{% else %}该日暂无需求{% endif %}</p>
+      <p class="muted">{% if customer %}未找到「{{ customer }}」相关需求{% elif filter_by_date %}该日暂无需求{% else %}暂无需求{% endif %}</p>
       {% else %}
       <table>
         <thead>
-          <tr><th>ID</th><th>客户代码</th><th>客户名</th><th>材料</th><th>状态</th><th>件数行</th><th>提交人</th><th>时间</th><th></th></tr>
+          <tr><th>ID</th><th>业务日期</th><th>客户代码</th><th>客户名</th><th>材料</th><th>状态</th><th>件数行</th><th>提交人</th><th>时间</th><th></th></tr>
         </thead>
         <tbody>
         {% for d in demands %}
           <tr>
             <td>#{{ d.id }}</td>
+            <td>{{ d.work_date }}</td>
             <td><span class="tag">{{ d.customer_code }}</span></td>
             <td>{{ d.customer_name or '—' }}</td>
             <td>

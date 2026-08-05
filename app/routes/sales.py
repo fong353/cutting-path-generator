@@ -189,16 +189,23 @@ def sales_done(request: Request, ids: str = '', id: int = 0):
 
 @router.get('/demands', response_class=HTMLResponse)
 def sales_list(request: Request, date: str = '', customer: str = ''):
-    work_date = date or db.today_str()
     customer_q = (customer or '').strip()
+    # 填了客户关键词时默认忽略日期，跨日搜索；未填客户则按日浏览（默认今天）
+    if customer_q:
+        work_date = (date or '').strip()  # 表单回显用；查询不按日过滤
+        filter_date = None
+    else:
+        work_date = (date or '').strip() or db.today_str()
+        filter_date = work_date
     demands = db.list_demands(
-        work_date=work_date,
+        work_date=filter_date,
         customer_q=customer_q or None,
     )
     return templates.TemplateResponse('sales_list.html', {
         'request': request,
         'work_date': work_date,
         'customer': customer_q,
+        'filter_by_date': filter_date is not None,
         'demands': demands,
     })
 
