@@ -18,7 +18,7 @@
       <h1>提交切割需求</h1>
       <p class="muted">一次可添加多个客户；每个客户可添加多种材料（分隔显示），每种材料各自填写件明细。外框须小于板材 {{ sheet_w|default(120)|int }}×{{ sheet_h|default(100)|int }} cm。板材宽高由操作员拼板时手填。</p>
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
-      <form method="post" action="/sales/submit" id="salesForm">
+      <form method="post" action="/sales/submit" id="salesForm" autocomplete="off">
         <div class="row cols-2">
           <div>
             <label>业务日期</label>
