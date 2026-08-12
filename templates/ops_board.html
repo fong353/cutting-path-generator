@@ -333,6 +333,28 @@
       }
     }
 
+    function previewRect(sheet, x, y, pw, ph, ox, oy, scale) {
+      // 实际导入 CAD 的方向以右边为 X 原点；Y 方向与当前预览一致。
+      return {
+        x: ox + (sheet.mat_w - x - pw) * scale,
+        y: oy + y * scale,
+        w: pw * scale,
+        h: ph * scale,
+      };
+    }
+
+    function previewHole(p, outer, scale) {
+      const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
+      const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
+      // 外框已经左右镜像，孔相对外框也必须从右边距定位。
+      return {
+        x: outer.x + (p.pw - hl - p.piw) * scale,
+        y: outer.y + (p.ph - hb - p.pih) * scale,
+        w: p.piw * scale,
+        h: p.pih * scale,
+      };
+    }
+
     function draw() {
       const { canvas, cssW: w, cssH: h, dpr } = ensureCanvasSize();
       const ctx = canvas.getContext('2d');
@@ -370,28 +392,25 @@
 
       let area = 0;
       for (const p of sheet.placed) {
-        const x = ox + p.x * scale, y = oy + p.y * scale;
-        const pw = p.pw * scale, ph = p.ph * scale;
+        const outer = previewRect(sheet, p.x, p.y, p.pw, p.ph, ox, oy, scale);
+        const { x, y, w: pw, h: ph } = outer;
         ctx.fillStyle = colorByCustomer.get(p.customer_code) || 'rgba(30,120,220,0.12)';
         ctx.fillRect(x, y, pw, ph);
         ctx.strokeStyle = '#c00';
         ctx.lineWidth = 1;
         ctx.strokeRect(x, y, pw, ph);
         if (p.piw > 0) {
-          const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
-          const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
-          const ix = x + hl * scale;
-          const iy = y + (p.ph - hb - p.pih) * scale;
+          const hole = previewHole(p, outer, scale);
           ctx.fillStyle = '#fff';
-          ctx.fillRect(ix, iy, p.piw * scale, p.pih * scale);
+          ctx.fillRect(hole.x, hole.y, hole.w, hole.h);
           ctx.strokeStyle = '#06c';
-          ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
+          ctx.strokeRect(hole.x, hole.y, hole.w, hole.h);
         }
         area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
       }
       for (const s of sheet.secondary || []) {
-        const x = ox + s.x * scale, y = oy + s.y * scale;
-        const pw = s.pw * scale, ph = s.ph * scale;
+        const secondary = previewRect(sheet, s.x, s.y, s.pw, s.ph, ox, oy, scale);
+        const { x, y, w: pw, h: ph } = secondary;
         ctx.fillStyle = 'rgba(120,120,120,0.08)';
         ctx.fillRect(x, y, pw, ph);
         ctx.strokeStyle = '#888';
