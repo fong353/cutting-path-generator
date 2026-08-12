@@ -77,7 +77,7 @@
       </div>
 
       <div class="card">
-        <h2>拼板预览（引线标注为客户代码）</h2>
+        <h2>拼板预览（颜色对应下方客户代码图例）</h2>
         <canvas id="preview" width="800" height="480"></canvas>
         <div class="nav-sheets">
           <button type="button" class="btn secondary small" onclick="prevSheet()">◀</button>
@@ -85,6 +85,7 @@
           <button type="button" class="btn secondary small" onclick="nextSheet()">▶</button>
           <span id="utilLabel" class="muted"></span>
         </div>
+        <div id="customerLegend" class="customer-legend" aria-label="客户代码图例"></div>
         <div id="epsList" class="eps-downloads" style="margin-top:12px"></div>
       </div>
     </div>
@@ -100,6 +101,16 @@
     const REVIEW = {{ review | default(false) | tojson }};
     let sheets = [];
     let cur = 0;
+    const CUSTOMER_COLORS = [
+      { fill: 'rgba(14, 165, 233, 0.18)', swatch: '#0284c7' },
+      { fill: 'rgba(244, 63, 94, 0.17)', swatch: '#e11d48' },
+      { fill: 'rgba(132, 204, 22, 0.20)', swatch: '#65a30d' },
+      { fill: 'rgba(245, 158, 11, 0.20)', swatch: '#d97706' },
+      { fill: 'rgba(139, 92, 246, 0.17)', swatch: '#7c3aed' },
+      { fill: 'rgba(20, 184, 166, 0.18)', swatch: '#0f766e' },
+      { fill: 'rgba(236, 72, 153, 0.16)', swatch: '#be185d' },
+      { fill: 'rgba(99, 102, 241, 0.16)', swatch: '#4f46e5' },
+    ];
 
     function matOptions(selectedId) {
       let html = '<option value="">（手填/不选）</option>';
@@ -279,9 +290,8 @@
     function ensureCanvasSize() {
       const canvas = document.getElementById('preview');
       const cssW = Math.max(280, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 800));
-      // 标注分布在四周；件多时扩大画布高度，避免各侧标注挤在一起。
-      const nLabels = (sheets[cur]?.placed || []).filter(p => p.customer_code).length;
-      const cssH = Math.max(200, Math.round(cssW * 0.62), nLabels * 20 + 96);
+      // 板材按真实宽高比居中缩放；客户信息放在画布外的图例里，不占板材空间。
+      const cssH = Math.max(200, Math.min(Math.round(cssW * 0.62), Math.floor(window.innerHeight * 0.65)));
       const dpr = window.devicePixelRatio || 1;
       const bw = Math.round(cssW * dpr);
       const bh = Math.round(cssH * dpr);
@@ -294,53 +304,32 @@
       return { canvas, cssW, cssH, dpr };
     }
 
-    function drawLeaderLabels(ctx, targets, board) {
-      const groups = { left: [], right: [], top: [], bottom: [] };
-      for (const target of targets) groups[target.side].push(target);
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textBaseline = 'middle';
+    function customerGroups(sheet) {
+      const counts = new Map();
+      for (const p of sheet?.placed || []) {
+        if (p.customer_code) counts.set(p.customer_code, (counts.get(p.customer_code) || 0) + 1);
+      }
+      return [...counts.entries()]
+        .sort(([a], [b]) => String(a).localeCompare(String(b), 'zh-CN', { numeric: true }))
+        .map(([code, count], index) => ({ code, count, ...CUSTOMER_COLORS[index % CUSTOMER_COLORS.length] }));
+    }
 
-      function positions(items, axis, start, end) {
-        const ordered = [...items].sort((a, b) => a[axis] - b[axis]);
-        const step = ordered.length > 1 ? (end - start) / (ordered.length - 1) : 0;
-        return ordered.map((item, i) => ({ item, pos: ordered.length === 1 ? (start + end) / 2 : start + i * step }));
-      }
-      function leader(side, fromX, fromY, toX, toY) {
-        ctx.strokeStyle = '#7c3aed';
-        ctx.lineWidth = 1.25;
-        ctx.beginPath();
-        ctx.moveTo(fromX, fromY);
-        if (side === 'left' || side === 'right') {
-          ctx.lineTo(toX, fromY);
-        } else {
-          ctx.lineTo(fromX, toY);
-        }
-        ctx.lineTo(toX, toY);
-        ctx.stroke();
-      }
-
-      ctx.textAlign = 'right';
-      for (const { item, pos } of positions(groups.left, 'y', board.y + 10, board.y + board.h - 10)) {
-        leader('left', item.x, item.y, board.x - 5, pos);
-        ctx.fillStyle = '#111';
-        ctx.fillText(item.code, board.x - 10, pos);
-      }
-      ctx.textAlign = 'left';
-      for (const { item, pos } of positions(groups.right, 'y', board.y + 10, board.y + board.h - 10)) {
-        leader('right', item.x, item.y, board.x + board.w + 5, pos);
-        ctx.fillStyle = '#111';
-        ctx.fillText(item.code, board.x + board.w + 10, pos);
-      }
-      ctx.textAlign = 'center';
-      for (const { item, pos } of positions(groups.top, 'x', board.x + 12, board.x + board.w - 12)) {
-        leader('top', item.x, item.y, pos, board.y - 5);
-        ctx.fillStyle = '#111';
-        ctx.fillText(item.code, pos, board.y - 12);
-      }
-      for (const { item, pos } of positions(groups.bottom, 'x', board.x + 12, board.x + board.w - 12)) {
-        leader('bottom', item.x, item.y, pos, board.y + board.h + 5);
-        ctx.fillStyle = '#111';
-        ctx.fillText(item.code, pos, board.y + board.h + 12);
+    function renderCustomerLegend(groups) {
+      const legend = document.getElementById('customerLegend');
+      legend.replaceChildren();
+      for (const group of groups) {
+        const item = document.createElement('span');
+        item.className = 'customer-key';
+        const swatch = document.createElement('i');
+        swatch.className = 'customer-swatch';
+        swatch.style.backgroundColor = group.swatch;
+        const code = document.createElement('strong');
+        code.textContent = group.code;
+        const count = document.createElement('span');
+        count.className = 'muted';
+        count.textContent = `（${group.count} 件）`;
+        item.append(swatch, code, count);
+        legend.appendChild(item);
       }
     }
 
@@ -357,21 +346,21 @@
         ctx.fillStyle = '#aaa';
         ctx.font = '16px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('预览后显示拼板（引线标注为客户代码）', w / 2, h / 2);
+        ctx.fillText('预览后显示拼板（颜色对应下方客户代码图例）', w / 2, h / 2);
         label.textContent = '–';
         util.textContent = '';
+        renderCustomerLegend([]);
         return;
       }
       const sheet = sheets[cur];
+      const groups = customerGroups(sheet);
+      const colorByCustomer = new Map(groups.map(group => [group.code, group.fill]));
+      renderCustomerLegend(groups);
       const pad = 16;
-      const sideGutter = Math.min(110, Math.max(58, w * 0.16));
-      const topBottomGutter = 32;
-      const boardAreaW = w - 2 * pad - 2 * sideGutter;
-      const boardAreaH = h - 2 * pad - 2 * topBottomGutter;
-      const scale = Math.min(boardAreaW / sheet.mat_w, boardAreaH / sheet.mat_h);
+      const scale = Math.min((w - 2 * pad) / sheet.mat_w, (h - 2 * pad) / sheet.mat_h);
       const W = sheet.mat_w * scale, H = sheet.mat_h * scale;
-      const ox = pad + sideGutter + (boardAreaW - W) / 2;
-      const oy = pad + topBottomGutter + (boardAreaH - H) / 2;
+      const ox = pad + (w - 2 * pad - W) / 2;
+      const oy = pad + (h - 2 * pad - H) / 2;
 
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1.5;
@@ -380,11 +369,10 @@
       ctx.strokeRect(ox, oy, W, H);
 
       let area = 0;
-      const labelTargets = [];
       for (const p of sheet.placed) {
         const x = ox + p.x * scale, y = oy + p.y * scale;
         const pw = p.pw * scale, ph = p.ph * scale;
-        ctx.fillStyle = 'rgba(30,120,220,0.12)';
+        ctx.fillStyle = colorByCustomer.get(p.customer_code) || 'rgba(30,120,220,0.12)';
         ctx.fillRect(x, y, pw, ph);
         ctx.strokeStyle = '#c00';
         ctx.lineWidth = 1;
@@ -394,23 +382,10 @@
           const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
           const ix = x + hl * scale;
           const iy = y + (p.ph - hb - p.pih) * scale;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(ix, iy, p.piw * scale, p.pih * scale);
           ctx.strokeStyle = '#06c';
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
-        }
-        if (p.customer_code) {
-          const cx = x + pw / 2, cy = y + ph / 2;
-          const dx = cx - (ox + W / 2), dy = cy - (oy + H / 2);
-          let side, startX, startY;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            side = dx < 0 ? 'left' : 'right';
-            startX = side === 'left' ? x : x + pw;
-            startY = cy;
-          } else {
-            side = dy < 0 ? 'top' : 'bottom';
-            startX = cx;
-            startY = side === 'top' ? y : y + ph;
-          }
-          labelTargets.push({ code: p.customer_code, side, x: startX, y: startY });
         }
         area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
       }
@@ -424,7 +399,6 @@
         ctx.strokeRect(x, y, pw, ph);
         area += s.pw * s.ph - (s.piw || 0) * (s.pih || 0);
       }
-      drawLeaderLabels(ctx, labelTargets, { x: ox, y: oy, w: W, h: H });
       label.textContent = `${cur + 1} / ${sheets.length}　${sheet.mat_name || ''} ${sheet.mat_w}×${sheet.mat_h} cm`;
       const utilPct = sheet.mat_w * sheet.mat_h > 0
         ? (100 * area / (sheet.mat_w * sheet.mat_h)).toFixed(1) : '0';

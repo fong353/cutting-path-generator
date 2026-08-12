@@ -118,12 +118,16 @@ th { color: var(--muted); font-weight: 600; }
 #preview {
   width: 100%;
   height: auto;
+  max-height: min(70vh, 640px);
   display: block;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 .nav-sheets { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.customer-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
+.customer-key { display: inline-flex; align-items: center; gap: 5px; font-size: 0.92rem; }
+.customer-swatch { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.18); }
 .tag {
   display: inline-block;
   background: #eef4ff;
