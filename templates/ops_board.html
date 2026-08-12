@@ -369,7 +369,8 @@
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
         }
         if (p.customer_code) {
-          labelTargets.push({ code: p.customer_code, x: x + pw / 2, y: y + ph / 2 });
+          // 标注都在板材右侧，引线从件的右边缘出发，不穿过件本身。
+          labelTargets.push({ code: p.customer_code, x: x + pw, y: y + ph / 2 });
         }
         area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
       }
