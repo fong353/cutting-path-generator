@@ -113,6 +113,10 @@
       { fill: 'rgba(236, 72, 153, 0.16)', swatch: '#be185d' },
       { fill: 'rgba(99, 102, 241, 0.16)', swatch: '#4f46e5' },
     ];
+    const MATERIAL_DIMENSIONS = {
+      white: { width: '120', height: '100' },
+      other: { width: '112', height: '81.3' },
+    };
 
     function matOptions(selectedId) {
       let html = '<option value="">（手填/不选）</option>';
@@ -121,6 +125,23 @@
         html += `<option value="${m.id}" ${sel}>${m.name}</option>`;
       }
       return html;
+    }
+
+    function materialPreset(name) {
+      return (name || '').trim() === '白卡纸'
+        ? MATERIAL_DIMENSIONS.white
+        : MATERIAL_DIMENSIONS.other;
+    }
+
+    function applyMaterialPreset(tr, overwrite) {
+      const sel = tr.querySelector('.mat-id');
+      if (!sel.value) return;
+      const opt = sel.options[sel.selectedIndex];
+      const preset = materialPreset(opt.text);
+      const width = tr.querySelector('.mat-w');
+      const height = tr.querySelector('.mat-h');
+      if (overwrite || !width.value.trim()) width.value = preset.width;
+      if (overwrite || !height.value.trim()) height.value = preset.height;
     }
 
     function addMat(row) {
@@ -133,10 +154,15 @@
         <td data-label="张数"><input class="mat-s" value="${row.sheets || ''}" placeholder="不限"></td>
         <td><button type="button" class="btn secondary small" onclick="this.closest('tr').remove()">删</button></td>`;
       document.getElementById('matBody').appendChild(tr);
+      // 初始行仅补空值，保留拼版检查或手工保存过的板材尺寸。
+      applyMaterialPreset(tr, false);
     }
     function onMatPick(sel) {
       const opt = sel.options[sel.selectedIndex];
-      sel.closest('tr').dataset.name = opt.text || '';
+      const tr = sel.closest('tr');
+      tr.dataset.name = opt.text || '';
+      // 用户主动换材料时，按该材料的常用板材尺寸重新预填，之后仍可直接手改。
+      applyMaterialPreset(tr, true);
     }
     function addFill(row) {
       row = row || { fw: '', fh: '', fiw: '', fih: '', enabled: true };
