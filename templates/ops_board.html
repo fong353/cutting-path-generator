@@ -41,19 +41,14 @@
       <div>
         <div class="card">
           <h2>材料（种类可继承任务；宽高手填）</h2>
-          <table class="material-table">
-            <colgroup>
-              <col class="col-material-kind">
-              <col class="col-material-num">
-              <col class="col-material-num">
-              <col class="col-material-num">
-              <col class="col-material-delete">
-            </colgroup>
-            <thead>
-              <tr><th>种类</th><th>宽（cm）</th><th>高（cm）</th><th>张数</th><th></th></tr>
-            </thead>
-            <tbody id="matBody"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="material-table">
+              <thead>
+                <tr><th>种类</th><th>宽（cm）</th><th>高（cm）</th><th>张数</th><th></th></tr>
+              </thead>
+              <tbody id="matBody"></tbody>
+            </table>
+          </div>
           <button type="button" class="btn secondary small" onclick="addMat()">＋ 材料行</button>
         </div>
         <div class="card">

@@ -68,11 +68,10 @@ input, select, textarea {
 table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: middle; }
 th { color: var(--muted); font-weight: 600; }
-.material-table { table-layout: fixed; }
-.material-table .col-material-kind { width: 36%; }
-.material-table .col-material-num { width: 17%; }
-.material-table .col-material-delete { width: 48px; }
-.material-table .mat-id { min-width: 0; }
+.table-scroll { overflow-x: auto; }
+.material-table { min-width: 560px; }
+.material-table .mat-id { min-width: 9em; }
+.material-table .mat-w, .material-table .mat-h, .material-table .mat-s { min-width: 5em; }
 .btn {
   display: inline-block;
   border: none;
