@@ -293,6 +293,49 @@
       return { canvas, cssW, cssH, dpr };
     }
 
+    function drawCustomerCode(ctx, p, x, y, pw, ph, scale) {
+      const code = p.customer_code || '';
+      if (!code) return;
+
+      // 画框的中间是内孔，可能还嵌着另一位客户的件。代码只能放在剩下的四条边上，
+      // 否则会和孔内件的代码重叠。
+      const zones = [];
+      if (p.piw > 0 && p.pih > 0) {
+        const hl = (p.hole_left != null) ? p.hole_left : (p.pw - p.piw) / 2;
+        const hb = (p.hole_bottom != null) ? p.hole_bottom : (p.ph - p.pih) / 2;
+        const hx = x + hl * scale;
+        const hy = y + (p.ph - hb - p.pih) * scale;
+        const hw = p.piw * scale;
+        const hh = p.pih * scale;
+        zones.push(
+          { x, y, w: pw, h: Math.max(0, hy - y) },
+          { x, y: hy + hh, w: pw, h: Math.max(0, y + ph - hy - hh) },
+          { x, y: hy, w: Math.max(0, hx - x), h: hh },
+          { x: hx + hw, y: hy, w: Math.max(0, x + pw - hx - hw), h: hh },
+        );
+      } else {
+        zones.push({ x, y, w: pw, h: ph });
+      }
+
+      let best = null;
+      for (const zone of zones) {
+        for (let fs = Math.min(22, Math.min(zone.w, zone.h) * 0.28); fs >= 8; fs -= 1) {
+          ctx.font = `bold ${fs}px sans-serif`;
+          if (ctx.measureText(code).width <= zone.w - 4 && fs * 1.25 <= zone.h - 4) {
+            if (!best || fs > best.fs) best = { ...zone, fs };
+            break;
+          }
+        }
+      }
+      if (!best) return;
+
+      ctx.fillStyle = '#111';
+      ctx.font = `bold ${best.fs}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(code, best.x + best.w / 2, best.y + best.h / 2);
+    }
+
     function draw() {
       const { canvas, cssW: w, cssH: h, dpr } = ensureCanvasSize();
       const ctx = canvas.getContext('2d');
@@ -341,15 +384,7 @@
           ctx.strokeStyle = '#06c';
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
         }
-        const code = p.customer_code || '';
-        if (code) {
-          const fs = Math.max(9, Math.min(22, Math.min(pw, ph) * 0.28));
-          ctx.fillStyle = '#111';
-          ctx.font = `bold ${fs}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(code, x + pw / 2, y + ph / 2);
-        }
+        drawCustomerCode(ctx, p, x, y, pw, ph, scale);
         area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
       }
       for (const s of sheet.secondary || []) {
