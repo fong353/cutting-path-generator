@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>操作员 · 混拼</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=20260812-2">
 </head>
 <body>
   <div class="wrap" style="max-width:1280px">
@@ -41,8 +41,8 @@
       <div>
         <div class="card">
           <h2>材料（种类可继承任务；宽高手填）</h2>
-          <div class="table-scroll">
-            <table class="material-table">
+          <div class="table-scroll" style="overflow-x:auto">
+            <table class="material-table" style="min-width:560px">
               <thead>
                 <tr><th>种类</th><th>宽（cm）</th><th>高（cm）</th><th>张数</th><th></th></tr>
               </thead>
@@ -127,7 +127,7 @@
       row = row || { material_id: null, name: '', width: '', height: '', sheets: '' };
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><select class="mat-id" onchange="onMatPick(this)">${matOptions(row.material_id)}</select></td>
+        <td><select class="mat-id" style="min-width:9em" onchange="onMatPick(this)">${matOptions(row.material_id)}</select></td>
         <td><input class="mat-w" value="${row.width || ''}" inputmode="decimal"></td>
         <td><input class="mat-h" value="${row.height || ''}" inputmode="decimal"></td>
         <td><input class="mat-s" value="${row.sheets || ''}" placeholder="不限"></td>
