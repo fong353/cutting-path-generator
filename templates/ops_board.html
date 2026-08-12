@@ -305,35 +305,40 @@
         const step = ordered.length > 1 ? (end - start) / (ordered.length - 1) : 0;
         return ordered.map((item, i) => ({ item, pos: ordered.length === 1 ? (start + end) / 2 : start + i * step }));
       }
-      function leader(fromX, fromY, toX, toY) {
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 1;
+      function leader(side, fromX, fromY, toX, toY) {
+        ctx.strokeStyle = '#7c3aed';
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
         ctx.moveTo(fromX, fromY);
+        if (side === 'left' || side === 'right') {
+          ctx.lineTo(toX, fromY);
+        } else {
+          ctx.lineTo(fromX, toY);
+        }
         ctx.lineTo(toX, toY);
         ctx.stroke();
       }
 
       ctx.textAlign = 'right';
       for (const { item, pos } of positions(groups.left, 'y', board.y + 10, board.y + board.h - 10)) {
-        leader(item.x, item.y, board.x - 5, pos);
+        leader('left', item.x, item.y, board.x - 5, pos);
         ctx.fillStyle = '#111';
         ctx.fillText(item.code, board.x - 10, pos);
       }
       ctx.textAlign = 'left';
       for (const { item, pos } of positions(groups.right, 'y', board.y + 10, board.y + board.h - 10)) {
-        leader(item.x, item.y, board.x + board.w + 5, pos);
+        leader('right', item.x, item.y, board.x + board.w + 5, pos);
         ctx.fillStyle = '#111';
         ctx.fillText(item.code, board.x + board.w + 10, pos);
       }
       ctx.textAlign = 'center';
       for (const { item, pos } of positions(groups.top, 'x', board.x + 12, board.x + board.w - 12)) {
-        leader(item.x, item.y, pos, board.y - 5);
+        leader('top', item.x, item.y, pos, board.y - 5);
         ctx.fillStyle = '#111';
         ctx.fillText(item.code, pos, board.y - 12);
       }
       for (const { item, pos } of positions(groups.bottom, 'x', board.x + 12, board.x + board.w - 12)) {
-        leader(item.x, item.y, pos, board.y + board.h + 5);
+        leader('bottom', item.x, item.y, pos, board.y + board.h + 5);
         ctx.fillStyle = '#111';
         ctx.fillText(item.code, pos, board.y + board.h + 12);
       }
