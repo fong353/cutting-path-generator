@@ -279,9 +279,9 @@
     function ensureCanvasSize() {
       const canvas = document.getElementById('preview');
       const cssW = Math.max(280, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 800));
-      // 右侧标注一件一行；件多时扩大画布高度，避免标注本身再次重叠。
+      // 标注分布在四周；件多时扩大画布高度，避免各侧标注挤在一起。
       const nLabels = (sheets[cur]?.placed || []).filter(p => p.customer_code).length;
-      const cssH = Math.max(200, Math.round(cssW * 0.62), nLabels * 24 + 32);
+      const cssH = Math.max(200, Math.round(cssW * 0.62), nLabels * 20 + 96);
       const dpr = window.devicePixelRatio || 1;
       const bw = Math.round(cssW * dpr);
       const bh = Math.round(cssH * dpr);
@@ -294,26 +294,48 @@
       return { canvas, cssW, cssH, dpr };
     }
 
-    function drawLeaderLabels(ctx, targets, labelX, top, bottom) {
-      if (!targets.length) return;
-      const rows = [...targets].sort((a, b) => a.y - b.y);
-      const rowGap = rows.length === 1 ? 0 : (bottom - top) / (rows.length - 1);
+    function drawLeaderLabels(ctx, targets, board) {
+      const groups = { left: [], right: [], top: [], bottom: [] };
+      for (const target of targets) groups[target.side].push(target);
       ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      for (let i = 0; i < rows.length; i += 1) {
-        const item = rows[i];
-        const labelY = rows.length === 1 ? (top + bottom) / 2 : top + i * rowGap;
-        const elbowX = labelX - 12;
+
+      function positions(items, axis, start, end) {
+        const ordered = [...items].sort((a, b) => a[axis] - b[axis]);
+        const step = ordered.length > 1 ? (end - start) / (ordered.length - 1) : 0;
+        return ordered.map((item, i) => ({ item, pos: ordered.length === 1 ? (start + end) / 2 : start + i * step }));
+      }
+      function leader(fromX, fromY, toX, toY) {
         ctx.strokeStyle = '#555';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(item.x, item.y);
-        ctx.lineTo(elbowX, labelY);
-        ctx.lineTo(labelX - 4, labelY);
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
         ctx.stroke();
+      }
+
+      ctx.textAlign = 'right';
+      for (const { item, pos } of positions(groups.left, 'y', board.y + 10, board.y + board.h - 10)) {
+        leader(item.x, item.y, board.x - 5, pos);
         ctx.fillStyle = '#111';
-        ctx.fillText(item.code, labelX, labelY);
+        ctx.fillText(item.code, board.x - 10, pos);
+      }
+      ctx.textAlign = 'left';
+      for (const { item, pos } of positions(groups.right, 'y', board.y + 10, board.y + board.h - 10)) {
+        leader(item.x, item.y, board.x + board.w + 5, pos);
+        ctx.fillStyle = '#111';
+        ctx.fillText(item.code, board.x + board.w + 10, pos);
+      }
+      ctx.textAlign = 'center';
+      for (const { item, pos } of positions(groups.top, 'x', board.x + 12, board.x + board.w - 12)) {
+        leader(item.x, item.y, pos, board.y - 5);
+        ctx.fillStyle = '#111';
+        ctx.fillText(item.code, pos, board.y - 12);
+      }
+      for (const { item, pos } of positions(groups.bottom, 'x', board.x + 12, board.x + board.w - 12)) {
+        leader(item.x, item.y, pos, board.y + board.h + 5);
+        ctx.fillStyle = '#111';
+        ctx.fillText(item.code, pos, board.y + board.h + 12);
       }
     }
 
@@ -337,12 +359,14 @@
       }
       const sheet = sheets[cur];
       const pad = 16;
-      const labelGutter = Math.min(190, Math.max(130, w * 0.24));
-      const boardAreaW = w - 2 * pad - labelGutter;
-      const scale = Math.min(boardAreaW / sheet.mat_w, (h - 2 * pad) / sheet.mat_h);
+      const sideGutter = Math.min(110, Math.max(58, w * 0.16));
+      const topBottomGutter = 32;
+      const boardAreaW = w - 2 * pad - 2 * sideGutter;
+      const boardAreaH = h - 2 * pad - 2 * topBottomGutter;
+      const scale = Math.min(boardAreaW / sheet.mat_w, boardAreaH / sheet.mat_h);
       const W = sheet.mat_w * scale, H = sheet.mat_h * scale;
-      const ox = pad + (boardAreaW - W) / 2;
-      const oy = pad + (h - 2 * pad - H) / 2;
+      const ox = pad + sideGutter + (boardAreaW - W) / 2;
+      const oy = pad + topBottomGutter + (boardAreaH - H) / 2;
 
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1.5;
@@ -369,8 +393,19 @@
           ctx.strokeRect(ix, iy, p.piw * scale, p.pih * scale);
         }
         if (p.customer_code) {
-          // 标注都在板材右侧，引线从件的右边缘出发，不穿过件本身。
-          labelTargets.push({ code: p.customer_code, x: x + pw, y: y + ph / 2 });
+          const cx = x + pw / 2, cy = y + ph / 2;
+          const dx = cx - (ox + W / 2), dy = cy - (oy + H / 2);
+          let side, startX, startY;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            side = dx < 0 ? 'left' : 'right';
+            startX = side === 'left' ? x : x + pw;
+            startY = cy;
+          } else {
+            side = dy < 0 ? 'top' : 'bottom';
+            startX = cx;
+            startY = side === 'top' ? y : y + ph;
+          }
+          labelTargets.push({ code: p.customer_code, side, x: startX, y: startY });
         }
         area += p.pw * p.ph - (p.piw || 0) * (p.pih || 0);
       }
@@ -384,7 +419,7 @@
         ctx.strokeRect(x, y, pw, ph);
         area += s.pw * s.ph - (s.piw || 0) * (s.pih || 0);
       }
-      drawLeaderLabels(ctx, labelTargets, ox + W + 24, pad + 14, h - pad - 14);
+      drawLeaderLabels(ctx, labelTargets, { x: ox, y: oy, w: W, h: H });
       label.textContent = `${cur + 1} / ${sheets.length}　${sheet.mat_name || ''} ${sheet.mat_w}×${sheet.mat_h} cm`;
       const utilPct = sheet.mat_w * sheet.mat_h > 0
         ? (100 * area / (sheet.mat_w * sheet.mat_h)).toFixed(1) : '0';
