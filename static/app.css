@@ -118,7 +118,6 @@ th { color: var(--muted); font-weight: 600; }
 #preview {
   width: 100%;
   height: auto;
-  max-height: min(70vh, 640px);
   display: block;
   background: #fff;
   border: 1px solid var(--line);
