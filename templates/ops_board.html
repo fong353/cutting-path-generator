@@ -104,14 +104,14 @@
     let sheets = [];
     let cur = 0;
     const CUSTOMER_COLORS = [
-      { fill: 'rgba(14, 165, 233, 0.18)', swatch: '#0284c7' },
-      { fill: 'rgba(244, 63, 94, 0.17)', swatch: '#e11d48' },
-      { fill: 'rgba(132, 204, 22, 0.20)', swatch: '#65a30d' },
-      { fill: 'rgba(245, 158, 11, 0.20)', swatch: '#d97706' },
-      { fill: 'rgba(139, 92, 246, 0.17)', swatch: '#7c3aed' },
-      { fill: 'rgba(20, 184, 166, 0.18)', swatch: '#0f766e' },
-      { fill: 'rgba(236, 72, 153, 0.16)', swatch: '#be185d' },
-      { fill: 'rgba(99, 102, 241, 0.16)', swatch: '#4f46e5' },
+      '#0284c7',
+      '#e11d48',
+      '#65a30d',
+      '#d97706',
+      '#7c3aed',
+      '#0f766e',
+      '#be185d',
+      '#4f46e5',
     ];
     const MATERIAL_DIMENSIONS = {
       white: { width: '120', height: '100' },
@@ -339,7 +339,11 @@
       }
       return [...counts.entries()]
         .sort(([a], [b]) => String(a).localeCompare(String(b), 'zh-CN', { numeric: true }))
-        .map(([code, count], index) => ({ code, count, ...CUSTOMER_COLORS[index % CUSTOMER_COLORS.length] }));
+        .map(([code, count], index) => ({
+          code,
+          count,
+          color: CUSTOMER_COLORS[index % CUSTOMER_COLORS.length],
+        }));
     }
 
     function renderCustomerLegend(groups) {
@@ -350,7 +354,7 @@
         item.className = 'customer-key';
         const swatch = document.createElement('i');
         swatch.className = 'customer-swatch';
-        swatch.style.backgroundColor = group.swatch;
+        swatch.style.backgroundColor = group.color;
         const code = document.createElement('strong');
         code.textContent = group.code;
         const count = document.createElement('span');
@@ -404,7 +408,7 @@
       }
       const sheet = sheets[cur];
       const groups = customerGroups(sheet);
-      const colorByCustomer = new Map(groups.map(group => [group.code, group.fill]));
+      const colorByCustomer = new Map(groups.map(group => [group.code, group.color]));
       renderCustomerLegend(groups);
       const pad = 16;
       const scale = Math.min((w - 2 * pad) / sheet.mat_w, (h - 2 * pad) / sheet.mat_h);
@@ -422,7 +426,7 @@
       for (const p of sheet.placed) {
         const outer = previewRect(sheet, p.x, p.y, p.pw, p.ph, ox, oy, scale);
         const { x, y, w: pw, h: ph } = outer;
-        ctx.fillStyle = colorByCustomer.get(p.customer_code) || 'rgba(30,120,220,0.12)';
+        ctx.fillStyle = colorByCustomer.get(p.customer_code) || CUSTOMER_COLORS[0];
         ctx.fillRect(x, y, pw, ph);
         ctx.strokeStyle = '#c00';
         ctx.lineWidth = 1;
